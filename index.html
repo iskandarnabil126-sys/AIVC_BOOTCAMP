@@ -224,6 +224,7 @@ function downloadPage() {
     '<div class="header"><h1>' + title + '</h1><p>' + subtitle + '</p><div class="meta">Dicetak: ' + dateStr + ' | Sistem Pengendalian Intern Pemerintah Aceh (PERISAI)</div></div>' +
     '<div class="content">' + stripForDownload(contentHTML) + '</div>' +
     '<div class="footer">Dokumen ini dihasilkan secara otomatis dari Sistem PERISAI Aceh &mdash; ' + dateStr + '</div>' +
+    <aside class="w-72 bg-surface shrink-0 ...
     '</body></html>';
   var blob = new Blob([html], { type: "text/html" });
   var url = URL.createObjectURL(blob);
