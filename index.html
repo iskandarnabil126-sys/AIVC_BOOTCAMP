@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html class="light" lang="id">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        secondary: "#795900", "badge-accent": "#FEF3C7", "inverse-primary": "#63d9d1",
+        error: "#ba1a1a", "on-error": "#ffffff", outline: "#6d7a78",
+        "surface-container-highest": "#dee4e2", "secondary-container": "#ffc329",
+        "surface-container": "#eaefed", background: "#f5faf9", "on-surface": "#171d1c",
+        surface: "#FFFFFF", "inverse-on-surface": "#ecf2f0", "inverse-surface": "#2c3231",
+        "on-primary-container": "#f3fffd", "border-hard": "#000000",
+        "primary-container": "#00837d", "primary-dark": "#005753",
+        "surface-container-low": "#eff5f3", "text-main": "#000000",
+        "surface-tint": "#006a65", tertiary: "#934623", "error-container": "#ffdad6",
+        "primary-fixed": "#82f5ed", primary: "#006763", "on-primary": "#ffffff",
+        "primary-fixed-dim": "#63d9d1", "on-secondary": "#ffffff",
+        "tertiary-container": "#b25d38", "on-surface-variant": "#3d4948",
+        "surface-dim": "#d6dbda", danger: "#dc2626", warning: "#f59e0b", success: "#16a34a",
+        "accent-yellow": "#FBBF24", "neutral-canvas": "#FAFAF5"
+      },
+      borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+      fontFamily: { headline: ["Bricolage Grotesque"], body: ["Bricolage Grotesque"] },
+    },
+  },
+}
+</script>
+<style>
+  body { background-color: #FAFAF5; font-family: 'Bricolage Grotesque', sans-serif; color: #000000; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+  .neubrutalism-shadow { box-shadow: 2px 2px 0px 0px #000000; }
+  .neubrutalism-shadow-sm { box-shadow: 2px 2px 0px 0px #000000; }
+  .interactive-element:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0px 0px #000000; transition: all 0.2s ease; }
+  .interactive-element:active { transform: scale(0.95); transition: all 0.05s ease; }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; vertical-align: middle; }
+  .sidebar-link.active { background-color: #00837d !important; color: #f3fffd !important; border-left: 4px solid #000 !important; }
+  .heatmap-cell { transition: all 0.2s ease; cursor: pointer; }
+  .heatmap-cell:hover { transform: scale(1.05); z-index: 10; box-shadow: 2px 2px 0px 0px #000; }
+  .countdown-warning { animation: pulse-red 1s infinite; }
+  @keyframes pulse-red { 0%,100% { background-color: #fef2f2; } 50% { background-color: #fee2e2; } }
+  .modal-overlay { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c4c9c7; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #00837d; }
+@media print {
+  body * { visibility: hidden; }
+  #app, #app * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff; }
+  .print-area .neubrutalism-shadow { box-shadow: none !important; }
+  .print-area .no-print { display: none !important; }
+  .print-area .border-\[1\.5px\] { border-color: #ccc !important; }
+  .print-area button { display: none !important; }
+  .print-area [class*="interactive"] { transform: none !important; }
+  @page { margin: 1.5cm; }
+}
+.print-btn-group { display: flex; gap: 6px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+
+const APP = {
+  data: {
+    users: JSON.parse(localStorage.getItem("pa_users") || "[]"),
+    riskRegister: JSON.parse(localStorage.getItem("pa_risk_register") || "[]"),
+    spipEvidence: JSON.parse(localStorage.getItem("pa_spip_evidence") || "[]"),
+    tlhpItems: JSON.parse(localStorage.getItem("pa_tlhp_items") || "[]"),
+    fraudAlerts: JSON.parse(localStorage.getItem("pa_fraud_alerts") || "[]"),
+    complianceChecks: JSON.parse(localStorage.getItem("pa_compliance_checks") || "[]"),
+    skpaList: JSON.parse(localStorage.getItem("pa_skpa_list") || "[]"),
+    sessionUser: JSON.parse(localStorage.getItem("pa_session") || "null"),
+  },
+  save(key) { localStorage.setItem("pa_" + key, JSON.stringify(this.data[key])); },
+  id(items) { return items.length ? Math.max(...items.map(i => i.id || 0)) + 1 : 1; },
+  getRoleLabel(role) {
+    const map = { super_admin: "Super Admin / Inspektorat", risk_officer: "Risk Officer SKPA", eksekutif: "Eksekutif" };
+    return map[role] || role;
+  },
+  seedData() {
+    if (this.data.users.length === 0) {
+      this.data.users = [
+        { id: 1, nama: "Inspektur Aceh", email: "inspektur@aceh.go.id", password: "admin123", role: "super_admin", skpa: "Inspektorat Aceh", aktif: true },
+        { id: 2, nama: "Risk Officer Dinas Pendidikan", email: "risk@dikbud.aceh.go.id", password: "skpa123", role: "risk_officer", skpa: "Dinas Pendidikan Aceh", aktif: true },
+        { id: 3, nama: "Risk Officer Dinas Kesehatan", email: "risk@kes.aceh.go.id", password: "skpa123", role: "risk_officer", skpa: "Dinas Kesehatan Aceh", aktif: true },
+        { id: 4, nama: "Sekretaris Daerah Aceh", email: "sekda@aceh.go.id", password: "exec123", role: "eksekutif", skpa: "-", aktif: true },
+      ];
+      this.save("users");
+    }
+    if (this.data.riskRegister.length === 0) {
+      this.data.riskRegister = [
+        { id: 1, skpa: "Dinas Pendidikan Aceh", tahun: 2026, sasaran: "Meningkatkan mutu pendidikan", risiko: "Keterlambatan pencairan dana BOS", penyebab: "Verifikasi dokumen lambat", dampak: "Operasional sekolah terganggu", skorKemungkinan: 4, skorDampak: 4, pengendalian: "SOP pencairan dana", rtp: "Digitalisasi verifikasi", jadwal: "2026-06-30", pic: "Kabid Pembiayaan", status: "Open" },
+        { id: 2, skpa: "Dinas Pendidikan Aceh", tahun: 2026, sasaran: "Efisiensi anggaran", risiko: "Mark up harga pengadaan alat sekolah", penyebab: "Tidak ada proper bidding", dampak: "Kerugian negara", skorKemungkinan: 3, skorDampak: 5, pengendalian: "Review harga pasar", rtp: "E-tendering wajib", jadwal: "2026-08-15", pic: "Kabid Sarpras", status: "Open" },
+        { id: 3, skpa: "Dinas Kesehatan Aceh", tahun: 2026, sasaran: "Pelayanan kesehatan merata", risiko: "Kekurangan vaksin di puskesmas", penyebab: "Distribusi tidak merata", dampak: "Cakupan imunisasi turun", skorKemungkinan: 3, skorDampak: 3, pengendalian: "Sistem distribusi terjadwal", rtp: "Dashboard stok vaksin real-time", jadwal: "2026-05-01", pic: "Kabid P2P", status: "In Progress" },
+      ];
+      this.save("riskRegister");
+    }
+    if (this.data.tlhpItems.length === 0) {
+      this.data.tlhpItems = [
+        { id: 1, skpa: "Dinas Pendidikan Aceh", nomorLhp: "12/LHP/BPK/2026", tanggalLhp: "2026-01-15", kodeTemuan: "TMP-001", rekomendasiAuditor: "Menyetorkan kekurangan PPh 21 ke kas negara sebesar Rp 125.000.000", nominalTemuan: 125000000, tindakan: "Telah disetor melalui bank", nilaiSetor: 125000000, status: "SS", buktiUrl: "", tglInput: "2026-02-10", batasWaktu: "2026-03-16", pic: "Kabid Keuangan" },
+        { id: 2, skpa: "Dinas Pendidikan Aceh", nomorLhp: "12/LHP/BPK/2026", tanggalLhp: "2026-01-15", kodeTemuan: "TMP-002", rekomendasiAuditor: "Melengkapi dokumen SPJ perjalanan dinas yang kurang", nominalTemuan: 0, tindakan: "Masih dalam proses pengumpulan dokumen", nilaiSetor: 0, status: "BS", buktiUrl: "", tglInput: "2026-02-10", batasWaktu: "2026-03-16", pic: "Kasubbag TU" },
+        { id: 3, skpa: "Dinas Kesehatan Aceh", nomorLhp: "08/LHP/BPKP/2026", tanggalLhp: "2026-02-01", kodeTemuan: "KM-001", rekomendasiAuditor: "Memperbaiki sistem pengendalian intern pengadaan obat", nominalTemuan: 0, tindakan: "", nilaiSetor: 0, status: "TD", buktiUrl: "", tglInput: "2026-02-20", batasWaktu: "2026-04-01", pic: "Kabid Farmasi" },
+      ];
+      this.save("tlhpItems");
+    }
+    if (this.data.fraudAlerts.length === 0) {
+      this.data.fraudAlerts = [
+        { id: 1, skpa: "Dinas Pendidikan Aceh", kategori: "Pecah Paket", nilai: 195000000, threshold: 200000000, deskripsi: "2 paket pengadaan langsung @Rp 197.5jt & 195jt dalam 1 hari", severity: "high", tanggal: "2026-03-10", flag: true },
+        { id: 2, skpa: "Dinas Kesehatan Aceh", kategori: "Monopoli Pemenang", nilai: 0, threshold: 0, deskripsi: "CV Sehat Selalu memenangkan 8 dari 10 tender obat 2026", severity: "critical", tanggal: "2026-03-12", flag: true },
+        { id: 3, skpa: "Dinas Pendidikan Aceh", kategori: "Spiking Akhir Tahun", nilai: 75000000000, threshold: 50000000000, deskripsi: "Realisasi triwulan IV melonjak 75% dari triwulan III", severity: "medium", tanggal: "2026-03-08", flag: true },
+      ];
+      this.save("fraudAlerts");
+    }
+    if (this.data.complianceChecks.length === 0) {
+      this.data.complianceChecks = [
+        { id: 1, skpa: "Dinas Pendidikan Aceh", regulasi: "UU No. 20/2003 tentang Sisdiknas", status: "Sesuai", catatan: "Dokumen kurikulum telah sesuai", checkedDate: "2026-03-01" },
+        { id: 2, skpa: "Dinas Pendidikan Aceh", regulasi: "Qanun Aceh No. 11/2017 tentang Pendidikan", status: "Tidak Sesuai", catatan: "Belum memiliki Peraturan Gubernur turunan", checkedDate: "2026-03-01" },
+        { id: 3, skpa: "Dinas Pendidikan Aceh", regulasi: "Permendagri No. 77/2020 tentang Pengelolaan Keuangan", status: "Sesuai", catatan: "", checkedDate: "2026-03-01" },
+        { id: 4, skpa: "Dinas Kesehatan Aceh", regulasi: "UU No. 36/2009 tentang Kesehatan", status: "Sesuai", catatan: "", checkedDate: "2026-03-05" },
+        { id: 5, skpa: "Dinas Kesehatan Aceh", regulasi: "Qanun Aceh No. 4/2019 tentang Kesehatan", status: "Tidak Sesuai", catatan: "Regulasi turunan RS rujukan belum dibentuk", checkedDate: "2026-03-05" },
+      ];
+      this.save("complianceChecks");
+    }
+    if (this.data.spipEvidence.length === 0) {
+      this.data.spipEvidence = [
+        { id: 1, skpa: "Dinas Pendidikan Aceh", unsur: "Lingkungan Pengendalian", subUnsur: "1.1 Penegakan Integritas", uraian: "Telah memiliki SK Tim Kode Etik", status: "Terverifikasi" },
+        { id: 2, skpa: "Dinas Pendidikan Aceh", unsur: "Penilaian Risiko", subUnsur: "2.1 Identifikasi Risiko", uraian: "Risk register telah disusun", status: "Perlu Verifikasi" },
+      ];
+      this.save("spipEvidence");
+    }
+    if (this.data.skpaList.length === 0) {
+      this.data.skpaList = [
+        { id: 1, nama: "Inspektorat Aceh", alamat: "Jl. T. Nyak Arief No.219", kontak: "inspektorat@aceh.go.id", aktif: true },
+        { id: 2, nama: "Dinas Pendidikan Aceh", alamat: "Jl. T. Nyak Arief No.175", kontak: "dikbud@aceh.go.id", aktif: true },
+        { id: 3, nama: "Dinas Kesehatan Aceh", alamat: "Jl. Tgk. Daud Beureueh No.40", kontak: "dinkes@aceh.go.id", aktif: true },
+        { id: 4, nama: "Dinas PUPR Aceh", alamat: "Jl. T. Nyak Arief", kontak: "pupr@aceh.go.id", aktif: true },
+        { id: 5, nama: "Bappeda Aceh", alamat: "Jl. T. Nyak Arief No.221", kontak: "bappeda@aceh.go.id", aktif: true },
+        { id: 6, nama: "BPKA Aceh", alamat: "Jl. T. Nyak Arief No.223", kontak: "bpka@aceh.go.id", aktif: true },
+        { id: 7, nama: "Dinas Perhubungan Aceh", alamat: "Jl. Sultan Malikul Saleh", kontak: "dishub@aceh.go.id", aktif: true },
+        { id: 8, nama: "Dinas Pertanian dan Perkebunan Aceh", alamat: "Jl. T. Nyak Arief", kontak: "distanbun@aceh.go.id", aktif: true },
+        { id: 9, nama: "Dinas Perindustrian dan Perdagangan Aceh", alamat: "Jl. Teungku Chik Pante Kulu", kontak: "disperindag@aceh.go.id", aktif: true },
+        { id: 10, nama: "Dinas Sosial Aceh", alamat: "Jl. Tgk. H. M. Daud Beureueh", kontak: "dinsos@aceh.go.id", aktif: true },
+        { id: 11, nama: "Dinas Kebudayaan dan Pariwisata Aceh", alamat: "Jl. Tgk. Chik Kuta Karang", kontak: "disbudpar@aceh.go.id", aktif: true },
+        { id: 12, nama: "Dinas Kelautan dan Perikanan Aceh", alamat: "Jl. T. Nyak Arief", kontak: "dislutkan@aceh.go.id", aktif: true },
+        { id: 13, nama: "Dinas Kehutanan dan Lingkungan Hidup Aceh", alamat: "Jl. T. Nyak Arief", kontak: "dinaslhk@aceh.go.id", aktif: true },
+        { id: 14, nama: "Dinas Tenaga Kerja dan Mobilitas Penduduk Aceh", alamat: "Jl. Tgk. Daud Beureueh", kontak: "disnakermob@aceh.go.id", aktif: true },
+        { id: 15, nama: "Dinas Pemberdayaan Perempuan dan Perlindungan Anak Aceh", alamat: "Jl. T. Nyak Arief", kontak: "pppa@aceh.go.id", aktif: true },
+        { id: 16, nama: "Dinas Pemberdayaan Masyarakat dan Gampong Aceh", alamat: "Jl. T. Nyak Arief", kontak: "dpmg@aceh.go.id", aktif: true },
+        { id: 17, nama: "Dinas Perumahan Rakyat dan Kawasan Permukiman Aceh", alamat: "Jl. T. Nyak Arief", kontak: "disperakim@aceh.go.id", aktif: true },
+        { id: 18, nama: "Dinas Penanaman Modal dan PTSP Aceh", alamat: "Jl. Tgk. H. M. Daud Beureueh", kontak: "dpmptsp@aceh.go.id", aktif: true },
+        { id: 19, nama: "Dinas Koperasi dan UKM Aceh", alamat: "Jl. T. Nyak Arief", kontak: "koprasi@aceh.go.id", aktif: true },
+        { id: 20, nama: "Dinas Syariat Islam Aceh", alamat: "Jl. Tgk. Chik Kuta Karang", kontak: "dsi@aceh.go.id", aktif: true },
+        { id: 21, nama: "Dinas Pemuda dan Olahraga Aceh", alamat: "Jl. Sultan Malikul Saleh", kontak: "dispora@aceh.go.id", aktif: true },
+        { id: 22, nama: "Dinas Komunikasi, Informatika dan Statistik Aceh", alamat: "Jl. T. Nyak Arief", kontak: "kominfo@aceh.go.id", aktif: true },
+        { id: 23, nama: "Dinas Energi dan Sumber Daya Mineral Aceh", alamat: "Jl. T. Nyak Arief", kontak: "esdm@aceh.go.id", aktif: true },
+        { id: 24, nama: "Dinas Perkebunan Aceh", alamat: "Jl. T. Nyak Arief", kontak: "disbun@aceh.go.id", aktif: true },
+        { id: 25, nama: "Dinas Peternakan dan Kesehatan Hewan Aceh", alamat: "Jl. T. Nyak Arief", kontak: "disnak@aceh.go.id", aktif: true },
+        { id: 26, nama: "Dinas Ketahanan Pangan Aceh", alamat: "Jl. T. Nyak Arief", kontak: "hanpang@aceh.go.id", aktif: true },
+        { id: 27, nama: "Dinas Perpustakaan dan Arsip Aceh", alamat: "Jl. T. Nyak Arief", kontak: "pusip@aceh.go.id", aktif: true },
+        { id: 28, nama: "Satpol PP dan WH Aceh", alamat: "Jl. Tgk. Daud Beureueh", kontak: "satpolpp@aceh.go.id", aktif: true },
+        { id: 29, nama: "Badan Kepegawaian Aceh", alamat: "Jl. T. Nyak Arief", kontak: "bka@aceh.go.id", aktif: true },
+        { id: 30, nama: "BPSDM Aceh", alamat: "Jl. T. Nyak Arief", kontak: "bpsdm@aceh.go.id", aktif: true },
+        { id: 31, nama: "Badan Kesbangpol Aceh", alamat: "Jl. T. Nyak Arief", kontak: "kesbangpol@aceh.go.id", aktif: true },
+        { id: 32, nama: "Badan Penghubung Pemerintah Aceh", alamat: "Jl. T. Nyak Arief", kontak: "penghubung@aceh.go.id", aktif: true },
+        { id: 33, nama: "BPBA", alamat: "Jl. T. Nyak Arief No.222", kontak: "bpba@aceh.go.id", aktif: true },
+        { id: 34, nama: "Sekretariat DPRA Aceh", alamat: "Jl. T. Nyak Arief", kontak: "setwan@dpra.aceh.go.id", aktif: true },
+        { id: 35, nama: "Kantor Gubernur Aceh", alamat: "Jl. T. Nyak Arief", kontak: "gubernur@aceh.go.id", aktif: true },
+      ];
+      this.save("skpaList");
+    }
+  }
+};
+APP.seedData();
+
+// ===== PRINT / DOWNLOAD =====
+var printing = false;
+function printPage() {
+  printing = true;
+  document.body.classList.add("printing");
+  document.getElementById("page-content").classList.add("print-area");
+  setTimeout(function() {
+    window.print();
+    document.body.classList.remove("printing");
+    document.getElementById("page-content").classList.remove("print-area");
+    printing = false;
+  }, 300);
+}
+function downloadPage() {
+  var title = document.getElementById("page-title").textContent;
+  var subtitle = document.getElementById("page-subtitle").textContent;
+  var contentEl = document.getElementById("page-content");
+  var contentHTML = contentEl ? contentEl.innerHTML : "";
+  var dateStr = new Date().toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<title>' + title + ' - Perisai Aceh</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">' +
+    '<style>' +
+    'body { font-family: "Bricolage Grotesque", sans-serif; padding: 40px; color: #000; line-height: 1.7; -webkit-font-smoothing: antialiased; }' +
+    '.header { margin-bottom: 24px; border-bottom: 2px solid #00837d; padding-bottom: 16px; }' +
+    '.header h1 { font-size: 24px; font-weight: 900; margin: 0 0 4px; color: #006763; }' +
+    '.header p { font-size: 13px; color: #555; margin: 0; }' +
+    '.header .meta { font-size: 11px; color: #888; margin-top: 8px; }' +
+    '.content { font-size: 13px; }' +
+    '.content table { width: 100%; border-collapse: collapse; font-size: 12px; }' +
+    '.content th, .content td { border: 1px solid #ccc; padding: 8px; text-align: left; }' +
+    '.content th { background: #f0f0f0; font-weight: 700; }' +
+    '.footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 11px; color: #888; text-align: center; }' +
+    '.no-print { display: none; }' +
+    'button { display: none; }' +
+    '</style></head><body>' +
+    '<div class="header"><h1>' + title + '</h1><p>' + subtitle + '</p><div class="meta">Dicetak: ' + dateStr + ' | Sistem Pengendalian Intern Pemerintah Aceh (PERISAI)</div></div>' +
+    '<div class="content">' + stripForDownload(contentHTML) + '</div>' +
+    '<div class="footer">Dokumen ini dihasilkan secara otomatis dari Sistem PERISAI Aceh &mdash; ' + dateStr + '</div>' +
+    '</body></html>';
+  var blob = new Blob([html], { type: "text/html" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "Perisai_Aceh_" + title.replace(/[^a-zA-Z0-9]/g, "_") + ".html";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function stripForDownload(html) {
+  return html
+    .replace(/<button[\s\S]*?<\/button>/gi, "")
+    .replace(/onclick="[^"]*"/gi, "")
+    .replace(/class="[^"]*interactive[^"]*"/gi, 'class=""')
+    .replace(/class="[^"]*no-print[^"]*"/gi, 'class=""')
+    .replace(/neubrutalism-shadow[^"]*/g, "")
+    .replace(/<script[\s\S]*?<\x2fscript>/gi, "");
+}
+
+// ===== ROUTER =====
+function render() {
+  const user = APP.data.sessionUser;
+  if (!user) { renderLogin(); return; }
+  const hash = location.hash.slice(1) || "dashboard";
+  document.getElementById("app").innerHTML = layout(hash, user);
+  attachNav(user);
+  routePage(hash, user);
+}
+
+function layout(page, user) {
+  const role = user.role;
+  const navItems = [
+    { id: "dashboard", icon: "dashboard", label: "Dashboard", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "risk-map", icon: "map", label: "Peta Risiko SKPA", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "spip", icon: "verified", label: "Dashboard SPIP", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "tlhp", icon: "fact_check", label: "Monitoring TLHP", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "fraud", icon: "security", label: "Deteksi Fraud", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "compliance", icon: "gavel", label: "Kepatuhan Regulasi", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "peta", icon: "map", label: "Peta Wilayah Aceh", roles: ["super_admin","risk_officer","eksekutif"] },
+    { id: "skpa", icon: "domain", label: "Data SKPA", roles: ["super_admin"] },
+    { id: "users", icon: "group", label: "Manajemen Pengguna", roles: ["super_admin"] },
+  ];
+  const filteredNav = navItems.filter(n => n.roles.includes(role));
+  const notifCount = APP.data.fraudAlerts.filter(a => a.severity === "critical" || a.severity === "high").length;
+  const dateStr = new Date().toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  return [
+    '<div class="flex h-screen overflow-hidden">',
+    '<aside class="w-72 bg-surface shrink-0 border-r-[1.5px] border-black flex flex-col neubrutalism-shadow z-20">',
+    '<div class="p-5 border-b-[1.5px] border-black">',
+    '<div class="flex items-center gap-3 mb-1">',
+    '<span class="material-symbols-outlined text-4xl text-primary">security</span>',
+    '<div><h1 class="font-headline text-[22px] font-black text-primary leading-tight">PERISAI</h1>',
+    '<p class="text-xs text-on-surface-variant tracking-wider font-bold">SISTEM PENGENDALIAN INTERN ACEH</p></div></div></div>',
+    '<nav class="flex-1 overflow-y-auto p-3 space-y-1" id="sidebar-nav">',
+    filteredNav.map(n => [
+      '<a href="#', n.id, '" class="sidebar-link flex items-center gap-3 px-5 py-3 rounded-xl border-[1.5px] border-black neubrutalism-shadow-sm text-sm font-bold hover:bg-primary-container/30 transition-all duration-150 ',
+      page === n.id ? "active" : "bg-white", '" data-page="', n.id, '">',
+      '<span class="material-symbols-outlined text-xl">', n.icon, '</span>', n.label, '</a>'
+    ].join("")).join(""),
+    '</nav>',
+    '<div class="p-4 border-t-[1.5px] border-black bg-surface-container-low">',
+    '<div class="flex items-center gap-3 mb-3">',
+    '<div class="w-10 h-10 bg-primary-container rounded-full border-[1.5px] border-black flex items-center justify-center">',
+    '<span class="font-headline text-sm font-black text-on-primary-container">', user.nama.charAt(0), '</span></div>',
+    '<div class="min-w-0 flex-1">',
+    '<p class="text-sm font-bold truncate">', user.nama, '</p>',
+    '<p class="text-xs text-on-surface-variant truncate">', user.skpa, '</p>',
+    '<span class="inline-block text-xs bg-primary-fixed-dim text-on-primary-fixed-variant px-2 py-0.5 rounded-full font-bold">', APP.getRoleLabel(role), '</span></div></div>',
+    '<button onclick="logout()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border-[1.5px] border-black bg-white text-sm font-bold interactive-element neubrutalism-shadow-sm">',
+    '<span class="material-symbols-outlined text-lg">logout</span> Keluar</button></div></aside>',
+    '<main class="flex-1 flex flex-col overflow-hidden bg-[#FAFAF5]">',
+    '<header class="bg-surface px-6 py-4 border-b-[1.5px] border-black flex items-center justify-between">',
+    '<div><h2 class="font-headline text-[24px] font-black" id="page-title">Dashboard</h2>',
+    '<p class="text-sm text-on-surface-variant" id="page-subtitle">Overview sistem pengendalian intern Pemerintah Aceh</p></div>',
+    '<div class="flex items-center gap-4">',
+    '<span class="text-sm text-on-surface-variant flex items-center gap-2">',
+    '<span class="material-symbols-outlined text-lg">calendar_today</span>', dateStr, '</span>',
+    '<div class="relative flex items-center gap-2 bg-warning/10 border-[1.5px] border-warning rounded-full px-4 py-2">',
+    '<span class="material-symbols-outlined text-warning text-lg">notifications_active</span>',
+    '<span class="text-xs font-bold text-warning" id="notif-count">', notifCount, ' Alert</span></div>',
+    '<div class="print-btn-group no-print">',
+    '<button onclick="downloadPage()" class="flex items-center gap-1 px-3 py-1.5 rounded-full border-[1.5px] border-black bg-white text-xs font-bold interactive-element neubrutalism-shadow-sm" title="Download"><span class="material-symbols-outlined text-sm">download</span></button>',
+    '<button onclick="printPage()" class="flex items-center gap-1 px-3 py-1.5 rounded-full border-[1.5px] border-black bg-white text-xs font-bold interactive-element neubrutalism-shadow-sm" title="Cetak"><span class="material-symbols-outlined text-sm">print</span></button>',
+    '</div></div></header>',
+    '<div class="flex-1 overflow-y-auto p-6" id="page-content"></div></main></div>'
+  ].join("");
+}
+
+function attachNav(user) {
+  document.querySelectorAll("#sidebar-nav a").forEach(function(a) {
+    a.addEventListener("click", function() {
+      document.querySelectorAll("#sidebar-nav a").forEach(function(x) { x.classList.remove("active"); });
+      this.classList.add("active");
+    });
+  });
+  window.addEventListener("hashchange", function() { render(); });
+}
+
+function routePage(page, user) {
+  const titles = {
+    dashboard: "Dashboard", "risk-map": "Peta Risiko SKPA", spip: "Dashboard SPIP",
+    tlhp: "Monitoring TLHP", fraud: "Deteksi Dini Fraud", compliance: "Analisis Kepatuhan Regulasi",     peta: "Peta Banda Aceh & Aceh Besar", skpa: "Data SKPA", users: "Manajemen Pengguna"
+  };
+  const subtitles = {
+    dashboard: "Overview sistem pengendalian intern Pemerintah Aceh",
+    "risk-map": "Pemetaan, identifikasi, dan mitigasi risiko SKPA se-Aceh",
+    spip: "Penilaian mandiri maturitas SPIP sesuai standar BPKP",
+    tlhp: "Pemantauan tindak lanjut rekomendasi BPK, BPKP, dan Inspektorat",
+    fraud: "Early warning system deteksi potensi fraud berbasis AI",
+    compliance: "Penilaian kepatuhan terhadap UU, Perpres, Qanun, dan Pergub",
+    peta: "Pemetaan lokasi strategis dan sebaran SKPA se-Kota Banda Aceh dan Kabupaten Aceh Besar",
+    skpa: "Kelola data master SKPA (Satuan Kerja Perangkat Aceh)",
+    users: "Kelola pengguna sistem Perisai Aceh"
+  };
+  document.getElementById("page-title").textContent = titles[page] || "Dashboard";
+  document.getElementById("page-subtitle").textContent = subtitles[page] || "";
+  const el = document.getElementById("page-content");
+  if (!el) return;
+  const fn = {
+    dashboard: renderDashboard, "risk-map": renderRiskMap, spip: renderSPIP,
+    tlhp: renderTLHP, fraud: renderFraud, compliance: renderCompliance, peta: renderPeta, skpa: renderSKPA, users: renderUsers
+  }[page];
+  if (fn) fn(el, user);
+}
+
+// ===== LOGIN =====
+function renderLogin() {
+  document.getElementById("app").innerHTML = [
+    '<div class="min-h-screen bg-[#FAFAF5] flex items-center justify-center p-4">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow p-10 w-full max-w-md">',
+    '<div class="text-center mb-8">',
+    '<div class="w-20 h-20 bg-primary-container rounded-full border-[3px] border-black flex items-center justify-center mx-auto mb-4 neubrutalism-shadow-sm">',
+    '<span class="material-symbols-outlined text-5xl text-white">security</span></div>',
+    '<h1 class="font-headline text-[40px] font-black text-primary leading-none">PERISAI</h1>',
+    '<p class="text-sm text-on-surface-variant mt-2">Pemerintah Aceh</p>',
+    '<p class="text-xs text-on-surface-variant mt-1">Sistem Pengendalian Intern & Manajemen Risiko SKPA</p>',
+    '<div class="mt-4 inline-flex items-center gap-2 bg-badge-accent px-4 py-1.5 rounded-full border-[1.5px] border-black">',
+    '<span class="text-xs font-bold">Terintegrasi SPIP & BPKP</span></div></div>',
+    '<form onsubmit="handleLogin(event)" class="space-y-4">',
+    '<div><label class="text-xs font-bold mb-1 block">Email / Username</label>',
+    '<input type="text" id="login-email" value="inspektur@aceh.go.id" class="w-full px-5 py-3 rounded-xl border-[1.5px] border-black text-sm neubrutalism-shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"></div>',
+    '<div><label class="text-xs font-bold mb-1 block">Password</label>',
+    '<input type="password" id="login-pass" value="admin123" class="w-full px-5 py-3 rounded-xl border-[1.5px] border-black text-sm neubrutalism-shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"></div>',
+    '<button type="submit" class="w-full bg-primary-container text-on-primary-container font-bold text-lg py-3.5 rounded-full border-[1.5px] border-black interactive-element neubrutalism-shadow flex items-center justify-center gap-2">',
+    '<span>Masuk ke Sistem</span><span class="material-symbols-outlined">arrow_forward</span></button></form>',
+    '<div class="mt-6 p-4 bg-surface-container-low rounded-xl border-[1.5px] border-black">',
+    '<p class="text-xs font-bold mb-2">AKUN DEMO:</p>',
+    '<div class="grid grid-cols-3 gap-2 text-xs">',
+    '<div class="bg-white p-2 rounded-lg border border-black"><strong>Inspektur</strong><br>admin123</div>',
+    '<div class="bg-white p-2 rounded-lg border border-black"><strong>Risk Officer</strong><br>skpa123</div>',
+    '<div class="bg-white p-2 rounded-lg border border-black"><strong>Sekda</strong><br>exec123</div>',
+    '</div></div></div></div>'
+  ].join("");
+}
+
+function handleLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById("login-email").value.trim();
+  const pass = document.getElementById("login-pass").value.trim();
+  const user = APP.data.users.find(function(u) { return u.email === email && u.password === pass && u.aktif; });
+  if (!user) { alert("Email atau password salah!"); return; }
+  APP.data.sessionUser = user;
+  localStorage.setItem("pa_session", JSON.stringify(user));
+  location.hash = "dashboard";
+  render();
+}
+
+function logout() {
+  APP.data.sessionUser = null;
+  localStorage.removeItem("pa_session");
+  location.hash = "";
+  render();
+}
+
+function closeModal(id) {
+  var el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+// ===== MODUL 1: PETA RISIKO SKPA =====
+function renderRiskMap(el, user) {
+  var isSuper = user.role === "super_admin";
+  var isOfficer = user.role === "risk_officer";
+  var allItems = APP.data.riskRegister;
+  if (isOfficer) allItems = allItems.filter(function(r) { return r.skpa === user.skpa; });
+  var filterSkpa = document.getElementById("risk-filter-skpa");
+  var filterTahun = document.getElementById("risk-filter-tahun");
+  var filterStatus = document.getElementById("risk-filter-status");
+  var fSkpa = filterSkpa ? filterSkpa.value : "";
+  var fTahun = filterTahun ? filterTahun.value : "";
+  var fStatus = filterStatus ? filterStatus.value : "";
+  var items = allItems;
+  if (fSkpa) items = items.filter(function(r) { return r.skpa === fSkpa; });
+  if (fTahun) items = items.filter(function(r) { return r.tahun === parseInt(fTahun); });
+  if (fStatus) items = items.filter(function(r) { return r.status === fStatus; });
+  var skpaOptions = isSuper
+    ? '<option value="">Semua SKPA</option>' + APP.data.skpaList.filter(function(s) { return s.aktif; }).map(function(s) { return '<option value="' + s.nama + '" ' + (fSkpa === s.nama ? "selected" : "") + '>' + s.nama + '</option>'; }).join("")
+    : '<option value="">' + user.skpa + '</option>';
+
+  var heatRows = "";
+  var likelihoods = [5,4,3,2,1];
+  var lLabels = {5:"Hampir Pasti",4:"Sangat Mungkin",3:"Mungkin",2:"Kurang Mungkin",1:"Sangat Jarang"};
+  for (var li = 0; li < likelihoods.length; li++) {
+    var l = likelihoods[li];
+    heatRows += '<tr><td class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold text-center">' + l + '<br><span class="text-xs font-normal">' + lLabels[l] + '</span></td>';
+    for (var im = 1; im <= 5; im++) {
+      var count = items.filter(function(r) { return r.skorKemungkinan === l && r.skorDampak === im; }).length;
+      var score = l * im;
+      var color = "#86efac", txtColor = "#000";
+      if (score >= 20) { color = "#450a0a"; txtColor = "#fff"; }
+      else if (score >= 12) { color = "#dc2626"; txtColor = "#fff"; }
+      else if (score >= 8) { color = "#f59e0b"; }
+      else if (score >= 4) { color = "#eab308"; }
+      heatRows += '<td class="border-[1.5px] border-black p-2 text-center font-bold text-sm heatmap-cell" style="background:' + color + ';color:' + txtColor + ';min-width:56px" onclick="alert(\'Risiko dengan skor ' + score + ' (L:' + l + ', I:' + im + '): ' + count + ' item\')">' + (count || "&mdash;") + "</td>";
+    }
+    heatRows += "</tr>";
+  }
+
+  var tbody = items.length === 0
+    ? '<tr><td colspan="8" class="border-[1.5px] border-black p-4 text-center text-on-surface-variant">Belum ada register risiko</td></tr>'
+    : items.map(function(r) {
+        var score = r.skorKemungkinan * r.skorDampak;
+        var level, levelColor;
+        if (score >= 20) { level = "Critical"; levelColor = "bg-danger text-white"; }
+        else if (score >= 12) { level = "High"; levelColor = "bg-warning text-black"; }
+        else if (score >= 8) { level = "Medium"; levelColor = "bg-warning/50 text-black"; }
+        else if (score >= 4) { level = "Low"; levelColor = "bg-badge-accent text-black"; }
+        else { level = "Very Low"; levelColor = "bg-green-100 text-black"; }
+        var stColor = r.status === "Closed" ? "bg-success text-white" : r.status === "In Progress" ? "bg-warning text-black" : "bg-danger text-white";
+        return '<tr class="hover:bg-surface-container-low">' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px]">' + r.skpa + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px] max-w-[200px] truncate" title="' + r.risiko + '">' + r.risiko + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + r.skorKemungkinan + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + r.skorDampak + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center text-[13px] font-bold">' + score + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center"><span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + levelColor + '">' + level + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center"><span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + stColor + '">' + r.status + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center">' +
+          '<button onclick="editRisk(' + r.id + ')" class="text-primary"><span class="material-symbols-outlined text-lg">edit</span></button> ' +
+          '<button onclick="deleteRisk(' + r.id + ')" class="text-danger"><span class="material-symbols-outlined text-lg">delete</span></button></td></tr>';
+      }).join("");
+
+  var headerLabels = "";
+  for (var hi = 1; hi <= 5; hi++) {
+    headerLabels += '<th class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold w-16">' + hi + '</th>';
+  }
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex flex-wrap gap-3 items-center">',
+    isSuper ? '<select id="risk-filter-skpa" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderRiskMap(document.getElementById(\'page-content\'), APP.data.sessionUser)">' + skpaOptions + '</select>' : '',
+    '<select id="risk-filter-tahun" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderRiskMap(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Tahun</option><option value="2026"' + (fTahun === "2026" ? " selected" : "") + '>2026</option><option value="2027"' + (fTahun === "2027" ? " selected" : "") + '>2027</option></select>',
+    '<select id="risk-filter-status" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderRiskMap(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Status</option><option value="Open"' + (fStatus === "Open" ? " selected" : "") + '>Open</option><option value="In Progress"' + (fStatus === "In Progress" ? " selected" : "") + '>In Progress</option><option value="Closed"' + (fStatus === "Closed" ? " selected" : "") + '>Closed</option></select>',
+    (isOfficer || isSuper) ? '<div class="ml-auto flex items-center gap-2">' +
+      '<button onclick="showUploadRiskModal()" class="flex items-center gap-2 bg-white px-4 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm"><span class="material-symbols-outlined text-lg">upload_file</span> Upload</button>' +
+      '<button onclick="showAddRiskModal()" class="flex items-center gap-2 bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm"><span class="material-symbols-outlined text-lg">add</span> Register Risiko Baru</button></div>' : "",
+    '</div>',
+    (fSkpa ? '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow" id="skpa-report">' +
+      '<div class="flex items-start justify-between mb-4">' +
+      '<div><h3 class="font-headline text-xl font-black flex items-center gap-2"><span class="material-symbols-outlined text-primary">business</span> Laporan Risiko: ' + fSkpa + '</h3>' +
+      '<p class="text-xs text-on-surface-variant mt-1">' + items.length + ' item risiko | Tahun: ' + (fTahun || "Semua") + ' | Status: ' + (fStatus || "Semua") + '</p></div>' +
+      '<button onclick="printRiskReport(\'' + fSkpa.replace(/'/g, "\\'") + '\')" class="flex items-center gap-2 bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm"><span class="material-symbols-outlined text-lg">print</span> Cetak Laporan</button></div>' +
+      '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">' +
+      (function() {
+        var cCritical = 0, cHigh = 0, cMedium = 0, cLow = 0;
+        items.forEach(function(r) {
+          var s = r.skorKemungkinan * r.skorDampak;
+          if (s >= 20) cCritical++;
+          else if (s >= 12) cHigh++;
+          else if (s >= 8) cMedium++;
+          else cLow++;
+        });
+        return [
+          {label: "Critical", count: cCritical, color: "#dc2626", textColor: "#fff"},
+          {label: "High", count: cHigh, color: "#f97316", textColor: "#000"},
+          {label: "Medium", count: cMedium, color: "#eab308", textColor: "#000"},
+          {label: "Low", count: cLow, color: "#22c55e", textColor: "#000"},
+        ].map(function(l) {
+          return '<div class="p-3 rounded-xl border-[1.5px] border-black text-center" style="background:' + l.color + ';color:' + l.textColor + '"><p class="font-headline text-2xl font-black">' + l.count + '</p><p class="text-xs font-bold">' + l.label + '</p></div>';
+        }).join("");
+      })() +
+      '</div>' +
+      '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container">' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Pernyataan Risiko</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">L</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">I</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Skor</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Level</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th>' +
+      '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">PIC</th></tr></thead><tbody>' +
+      (items.length === 0 ? '<tr><td colspan="7" class="p-4 text-center text-on-surface-variant">Belum ada data risiko</td></tr>' :
+        items.map(function(r) {
+          var score = r.skorKemungkinan * r.skorDampak;
+          var level, bg;
+          if (score >= 20) { level = "Critical"; bg = "#dc2626"; }
+          else if (score >= 12) { level = "High"; bg = "#f97316"; }
+          else if (score >= 8) { level = "Medium"; bg = "#eab308"; }
+          else { level = "Low"; bg = "#22c55e"; }
+          return '<tr><td class="border-[1.5px] border-black p-2 text-[13px]">' + r.risiko + '</td>' +
+            '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + r.skorKemungkinan + '</td>' +
+            '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + r.skorDampak + '</td>' +
+            '<td class="border-[1.5px] border-black p-2 text-center text-[13px] font-bold">' + score + '</td>' +
+            '<td class="border-[1.5px] border-black p-2 text-center"><span class="text-xs px-2 py-1 rounded-full font-bold" style="background:' + bg + ';color:#000;border:1.5px solid #000">' + level + '</span></td>' +
+            '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + r.status + '</td>' +
+            '<td class="border-[1.5px] border-black p-2 text-[13px]">' + (r.pic || "-") + '</td></tr>';
+        }).join("")
+      ) +
+      '</tbody></table></div></div>' : '') +
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4">Risk Heatmap Matrix 5x5</h3>',
+    '<div class="overflow-x-auto"><table class="w-full min-w-[300px] border-collapse"><thead><tr><th class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold w-20">Likelihood \\ Impact</th>' + headerLabels + '</tr></thead><tbody>' + heatRows + '</tbody></table></div>',
+    '<div class="flex gap-3 mt-3 flex-wrap">',
+    '<span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#86efac"></span> Very Low (1-3)</span>',
+    '<span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#eab308"></span> Low (4-6)</span>',
+    '<span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#f59e0b"></span> Medium (8-9)</span>',
+    '<span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#dc2626"></span> High (12-16)</span>',
+    '<span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#450a0a;color:#fff"></span> Critical (20-25)</span>',
+    '</div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2">',
+    '<span class="material-symbols-outlined text-primary">list_alt</span> Electronic Risk Register <span class="text-sm font-normal text-on-surface-variant">(' + items.length + ' risiko)</span></h3>',
+    '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container">',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">SKPA</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Pernyataan Risiko</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">L</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">I</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Skor</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Level</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th>',
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Aksi</th>',
+    '</tr></thead><tbody>' + tbody + '</tbody></table></div></div></div>'
+  ].join("");
+}
+
+function showAddRiskModal(data) {
+  var user = APP.data.sessionUser;
+  var isEdit = !!data;
+  var skpaOpts = user.role === "risk_officer"
+    ? '<option value="' + user.skpa + '">' + user.skpa + '</option>'
+    : '<option value="">-- Pilih SKPA --</option>' + APP.data.skpaList.filter(function(s) { return s.aktif; }).map(function(s) { return '<option value="' + s.nama + '" ' + (data && data.skpa === s.nama ? "selected" : "") + '>' + s.nama + '</option>'; }).join("");
+
+  var modalHtml = [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="risk-modal" onclick="if(event.target===this)closeModal(\'risk-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6">',
+    '<h3 class="font-headline text-xl font-black">' + (isEdit ? "Edit" : "Register") + ' Risiko Baru</h3>',
+    '<button onclick="closeModal(\'risk-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center hover:bg-surface-container"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-risk" class="space-y-4" onsubmit="saveRisk(event)">',
+    '<input type="hidden" id="risk-id" value="' + (data ? data.id : "") + '">',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">SKPA</label><select id="risk-skpa" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm" ' + (user.role === "risk_officer" ? "disabled" : "") + '>' + skpaOpts + '</select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Tahun Anggaran</label><select id="risk-tahun" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option value="2026" ' + (data && data.tahun === 2026 ? "selected" : "") + '>2026</option><option value="2027" ' + (data && data.tahun === 2027 ? "selected" : "") + '>2027</option></select></div></div>',
+    '<div><label class="text-xs font-bold block mb-1">Sasaran Strategis</label><textarea id="risk-sasaran" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.sasaran||"") : "") + '</textarea></div>',
+    '<div><label class="text-xs font-bold block mb-1">Pernyataan Risiko</label><textarea id="risk-pernyataan" rows="2" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.risiko||"") : "") + '</textarea></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Akar Penyebab</label><textarea id="risk-penyebab" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.penyebab||"") : "") + '</textarea></div>',
+    '<div><label class="text-xs font-bold block mb-1">Dampak</label><textarea id="risk-dampak" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.dampak||"") : "") + '</textarea></div></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Skor Kemungkinan (1-5)</label><div class="flex gap-2">' + [1,2,3,4,5].map(function(i) { return '<label class="flex-1 flex flex-col items-center p-2 rounded-xl border-[1.5px] border-black cursor-pointer hover:bg-primary-container/20' + ((data && data.skorKemungkinan === i) || (!data && i === 3) ? " bg-primary-container text-white" : " bg-white") + '"><input type="radio" name="risk-likelihood" value="' + i + '" ' + ((data && data.skorKemungkinan === i) || (!data && i === 3) ? "checked" : "") + ' class="sr-only" onchange="var p=this.closest(\'label\').parentElement;p.querySelectorAll(\'label\').forEach(function(l){l.classList.remove(\'bg-primary-container\',\'text-white\')});this.closest(\'label\').classList.add(\'bg-primary-container\',\'text-white\')"><span class="font-headline text-lg font-black">' + i + '</span></label>'; }).join("") + '</div></div>',
+    '<div><label class="text-xs font-bold block mb-1">Skor Dampak (1-5)</label><div class="flex gap-2">' + [1,2,3,4,5].map(function(i) { return '<label class="flex-1 flex flex-col items-center p-2 rounded-xl border-[1.5px] border-black cursor-pointer hover:bg-primary-container/20' + ((data && data.skorDampak === i) || (!data && i === 3) ? " bg-primary-container text-white" : " bg-white") + '"><input type="radio" name="risk-impact" value="' + i + '" ' + ((data && data.skorDampak === i) || (!data && i === 3) ? "checked" : "") + ' class="sr-only" onchange="var p=this.closest(\'label\').parentElement;p.querySelectorAll(\'label\').forEach(function(l){l.classList.remove(\'bg-primary-container\',\'text-white\')});this.closest(\'label\').classList.add(\'bg-primary-container\',\'text-white\')"><span class="font-headline text-lg font-black">' + i + '</span></label>'; }).join("") + '</div></div></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Pengendalian yang Ada</label><textarea id="risk-pengendalian" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.pengendalian||"") : "") + '</textarea></div>',
+    '<div><label class="text-xs font-bold block mb-1">Rencana Tindak Pengendalian</label><textarea id="risk-rtp" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? (data.rtp||"") : "") + '</textarea></div></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Jadwal Implementasi</label><input type="date" id="risk-jadwal" value="' + (data ? (data.jadwal||"") : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Penanggung Jawab</label><input type="text" id="risk-pic" value="' + (data ? (data.pic||"") : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div></div>',
+    '<div class="flex gap-3 pt-2">',
+    '<button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">' + (isEdit ? "Simpan Perubahan" : "Register Risiko") + '</button>',
+    '<button type="button" onclick="closeModal(\'risk-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button>',
+    '</div></form></div></div>'
+  ].join("");
+  document.getElementById("app").insertAdjacentHTML("beforeend", modalHtml);
+}
+
+function saveRisk(e) {
+  e.preventDefault();
+  var id = document.getElementById("risk-id").value;
+  var user = APP.data.sessionUser;
+  var skpaEl = document.getElementById("risk-skpa");
+  var data = {
+    skpa: skpaEl ? skpaEl.value : (user.role === "risk_officer" ? user.skpa : ""),
+    tahun: parseInt(document.getElementById("risk-tahun").value) || 2026,
+    sasaran: document.getElementById("risk-sasaran").value,
+    risiko: document.getElementById("risk-pernyataan").value,
+    penyebab: document.getElementById("risk-penyebab").value,
+    dampak: document.getElementById("risk-dampak").value,
+    skorKemungkinan: parseInt((document.querySelector("input[name='risk-likelihood']:checked") || {value:3}).value),
+    skorDampak: parseInt((document.querySelector("input[name='risk-impact']:checked") || {value:3}).value),
+    pengendalian: document.getElementById("risk-pengendalian").value,
+    rtp: document.getElementById("risk-rtp").value,
+    jadwal: document.getElementById("risk-jadwal").value,
+    pic: document.getElementById("risk-pic").value,
+    status: "Open",
+  };
+  if (id) {
+    var idx = APP.data.riskRegister.findIndex(function(r) { return r.id == id; });
+    if (idx > -1) { for (var k in data) APP.data.riskRegister[idx][k] = data[k]; }
+  } else {
+    data.id = APP.id(APP.data.riskRegister);
+    APP.data.riskRegister.push(data);
+  }
+  APP.save("riskRegister");
+  closeModal("risk-modal");
+  render();
+}
+
+function editRisk(id) {
+  var data = APP.data.riskRegister.find(function(r) { return r.id === id; });
+  if (data) showAddRiskModal(data);
+}
+
+function deleteRisk(id) {
+  if (!confirm("Hapus risiko ini?")) return;
+  APP.data.riskRegister = APP.data.riskRegister.filter(function(r) { return r.id !== id; });
+  APP.save("riskRegister");
+  render();
+}
+
+function downloadRiskTemplate() {
+  var csv = "SKPA,Tahun,Sasaran Strategis,Pernyataan Risiko,Akar Penyebab,Dampak,Skor Kemungkinan,Skor Dampak,Pengendalian,RTP,Jadwal,PIC,Status\n" +
+    "Dinas Pendidikan Aceh,2026,Meningkatkan mutu pendidikan,Keterlambatan pencairan dana BOS,Verifikasi dokumen lambat,Operasional sekolah terganggu,4,4,SOP pencairan dana,Digitalisasi verifikasi,2026-06-30,Kabid Pembiayaan,Open\n" +
+    "Dinas Kesehatan Aceh,2026,Pelayanan kesehatan merata,Kekurangan vaksin di puskesmas,Distribusi tidak merata,Cakupan imunisasi turun,3,3,Sistem distribusi terjadwal,Dashboard stok vaksin,2026-05-01,Kabid P2P,In Progress\n";
+  var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "Template_Import_Risiko_PERISAI.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showUploadRiskModal() {
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="upload-risk-modal" onclick="if(event.target===this)closeModal(\'upload-risk-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-xl max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6">',
+    '<h3 class="font-headline text-xl font-black flex items-center gap-2"><span class="material-symbols-outlined text-primary">upload_file</span> Upload Data Risiko</h3>',
+    '<button onclick="closeModal(\'upload-risk-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<p class="text-sm mb-4">Import data risiko dari file <strong>Excel (.xlsx/.xls)</strong>, <strong>CSV</strong>, atau <strong>JSON</strong>.</p>',
+    '<div class="border-[1.5px] border-dashed border-black rounded-xl p-8 text-center bg-surface-container-low mb-4 transition-all cursor-pointer hover:bg-surface-container" id="drop-zone" ondragover="event.preventDefault();this.style.borderColor=\'#00837d\';this.style.background=\'#f3fffd\'" ondrop="event.preventDefault();this.style.borderColor=\'#000\';this.style.background=\'\';uploadRiskFile(event.dataTransfer.files[0])" onclick="document.getElementById(\'risk-file-input\').click()">',
+    '<span class="material-symbols-outlined text-5xl text-primary mb-3">cloud_upload</span>',
+    '<p class="text-sm font-bold">Seret file ke sini atau klik untuk memilih</p>',
+    '<p class="text-xs text-on-surface-variant mt-1">Excel (.xlsx, .xls), CSV, atau JSON — maks 2MB</p>',
+    '<input type="file" id="risk-file-input" accept=".xlsx,.xls,.csv,.json" class="hidden" onchange="uploadRiskFile(this.files[0])">',
+    '<button type="button" onclick="event.stopPropagation();document.getElementById(\'risk-file-input\').click()" class="mt-4 bg-primary-container text-on-primary-container px-6 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">Pilih File</button>',
+    '</div>',
+    '<div id="risk-import-preview" class="mb-4" style="display:none"></div>',
+    '<div class="flex gap-3">',
+    '<button onclick="closeModal(\'upload-risk-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Tutup</button>',
+    '<button onclick="downloadRiskTemplate()" class="flex items-center gap-2 bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm"><span class="material-symbols-outlined text-lg">download</span> Template Excel</button>',
+    '</div></div></div>'
+  ].join(""));
+}
+
+function uploadRiskFile(file) {
+  if (!file) return;
+  if (file.size > 2097152) { alert("File terlalu besar. Maksimal 2MB."); return; }
+  var preview = document.getElementById("risk-import-preview");
+  preview.style.display = "block";
+  preview.innerHTML = '<div class="text-center py-4"><span class="material-symbols-outlined text-3xl animate-spin">refresh</span><p class="text-sm mt-2">Memproses file...</p></div>';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = e.target.result;
+      var rows = [];
+
+      if (file.name.match(/\.xlsx?$/i)) {
+        var wb = XLSX.read(data, { type: "array" });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        json.forEach(function(r) {
+          var row = {};
+          Object.keys(r).forEach(function(k) { row[k.trim()] = (r[k] || "").toString().trim(); });
+          rows.push(row);
+        });
+      } else if (file.name.endsWith(".json")) {
+        var json = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
+        rows = Array.isArray(json) ? json : (json.data && Array.isArray(json.data) ? json.data : []);
+      } else {
+        var text = typeof data === "string" ? data : new TextDecoder().decode(data);
+        var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+        if (lines.length > 1) {
+          var headers = parseCSVLine(lines[0]);
+          for (var i = 1; i < lines.length; i++) {
+            var vals = parseCSVLine(lines[i]);
+            if (vals.length < 2) continue;
+            var row = {};
+            headers.forEach(function(h, idx) { row[h] = vals[idx] || ""; });
+            rows.push(row);
+          }
+        }
+      }
+
+      processImportedRows(rows, preview);
+    } catch(err) {
+      preview.innerHTML = '<div class="p-4 rounded-xl border-[1.5px] border-danger bg-danger/10"><p class="text-sm font-bold text-danger">Gagal membaca file</p><p class="text-xs mt-1">' + err.message + '</p></div>';
+    }
+  };
+  if (file.name.match(/\.xlsx?$/i)) reader.readAsArrayBuffer(file);
+  else reader.readAsText(file);
+}
+
+function parseCSVLine(line) {
+  var result = [], current = "", inQuote = false;
+  for (var i = 0; i < line.length; i++) {
+    var c = line[i];
+    if (inQuote) {
+      if (c === '"') {
+        if (i + 1 < line.length && line[i+1] === '"') { current += '"'; i++; }
+        else inQuote = false;
+      } else { current += c; }
+    } else {
+      if (c === '"') inQuote = true;
+      else if (c === ',') { result.push(current.trim()); current = ""; }
+      else current += c;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function processImportedRows(rows, preview) {
+  var valid = [];
+  var errors = [];
+
+  rows.forEach(function(row, i) {
+    var skpa = row.SKPA || row.skpa || row.nama_skpa || "";
+    var risiko = row["Pernyataan Risiko"] || row.risiko || row.pernyataan_risiko || row.deskripsi || row["PernyataanRisiko"] || "";
+    if (!skpa) { errors.push("Baris " + (i+2) + ": SKPA tidak ditemukan"); return; }
+    if (!risiko) { errors.push("Baris " + (i+2) + ": Pernyataan Risiko tidak ditemukan"); return; }
+    var kemungkinan = parseInt(row["Skor Kemungkinan"] || row.skor_kemungkinan || row.likelihood || row.L || row["SkorKemungkinan"] || 3);
+    var dampak = parseInt(row["Skor Dampak"] || row.skor_dampak || row.impact || row.I || row["SkorDampak"] || 3);
+    valid.push({
+      skpa: skpa, tahun: parseInt(row.Tahun || row.tahun || 2026),
+      sasaran: row["Sasaran Strategis"] || row.sasaran || "",
+      risiko: risiko,
+      penyebab: row["Akar Penyebab"] || row.penyebab || row["AkarPenyebab"] || "",
+      dampak: row.Dampak || row.dampak || "",
+      skorKemungkinan: isNaN(kemungkinan) ? 3 : Math.min(5, Math.max(1, kemungkinan)),
+      skorDampak: isNaN(dampak) ? 3 : Math.min(5, Math.max(1, dampak)),
+      pengendalian: row.Pengendalian || row.pengendalian || row["Pengendalian yg Ada"] || "",
+      rtp: row.RTP || row.rtp || row["Rencana Tindak Pengendalian"] || "",
+      jadwal: row.Jadwal || row.jadwal || row["Jadwal Implementasi"] || "",
+      pic: row.PIC || row.pic || row["Penanggung Jawab"] || "",
+      status: row.Status || row.status || "Open",
+    });
+  });
+
+  if (errors.length > 0 && valid.length === 0) {
+    preview.innerHTML = '<div class="p-4 rounded-xl border-[1.5px] border-danger bg-danger/10"><p class="text-sm font-bold text-danger">' + errors.length + ' error, tidak ada data valid</p><ul class="text-xs mt-2 list-disc pl-4 max-h-32 overflow-y-auto">' + errors.slice(0, 20).map(function(e) { return '<li>' + e + '</li>'; }).join("") + '</ul></div>';
+    return;
+  }
+
+  var errorMsg = "";
+  if (errors.length > 0) errorMsg = '<div class="p-3 rounded-xl border-[1.5px] border-warning bg-warning/10 mb-3"><p class="text-xs font-bold">' + errors.length + ' baris dilewati (error)</p></div>';
+
+  preview.innerHTML = errorMsg +
+    '<div class="p-4 rounded-xl border-[1.5px] border-success bg-success/10">' +
+    '<p class="text-sm font-bold text-success">' + valid.length + ' data risiko siap diimport</p>' +
+    '<div class="max-h-40 overflow-y-auto mt-2 border-[1.5px] border-black rounded-lg">' +
+    '<table class="w-full text-xs border-collapse"><thead><tr class="bg-surface-container">' +
+    '<th class="border-[1.5px] border-black p-1">No</th><th class="border-[1.5px] border-black p-1">SKPA</th><th class="border-[1.5px] border-black p-1">Risiko</th><th class="border-[1.5px] border-black p-1">L</th><th class="border-[1.5px] border-black p-1">I</th><th class="border-[1.5px] border-black p-1">Status</th></tr></thead><tbody>' +
+    valid.slice(0, 20).map(function(r, i) {
+      return '<tr><td class="border-[1.5px] border-black p-1 text-center">' + (i+1) + '</td><td class="border-[1.5px] border-black p-1">' + r.skpa + '</td><td class="border-[1.5px] border-black p-1 max-w-[180px] truncate" title="' + r.risiko.replace(/"/g, "&quot;") + '">' + r.risiko + '</td><td class="border-[1.5px] border-black p-1 text-center">' + r.skorKemungkinan + '</td><td class="border-[1.5px] border-black p-1 text-center">' + r.skorDampak + '</td><td class="border-[1.5px] border-black p-1 text-center">' + r.status + '</td></tr>';
+    }).join("") +
+    (valid.length > 20 ? '<tr><td colspan="6" class="p-1 text-center text-on-surface-variant">... dan ' + (valid.length - 20) + ' lainnya</td></tr>' : "") +
+    '</tbody></table></div>' +
+    '<div class="flex gap-3 mt-3"><button onclick="confirmImport(' + valid.length + ')" class="bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">Konfirmasi Import</button>' +
+    '<span class="text-xs text-on-surface-variant self-center">Data akan ditambahkan ke register risiko yang sudah ada</span></div></div>';
+  preview._validRows = valid;
+}
+
+function confirmImport(count) {
+  var preview = document.getElementById("risk-import-preview");
+  if (!preview || !preview._validRows || preview._validRows.length === 0) return;
+  var valid = preview._validRows;
+  valid.forEach(function(r) {
+    r.id = APP.id(APP.data.riskRegister);
+    APP.data.riskRegister.push(r);
+  });
+  APP.save("riskRegister");
+  closeModal("upload-risk-modal");
+  render();
+  setTimeout(function() {
+    var el = document.getElementById("page-content");
+    if (el && el.querySelector("#skpa-report")) {
+      el.querySelector("#skpa-report").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, 100);
+}
+
+function downloadRiskTemplate() {
+  var ws = XLSX.utils.aoa_to_sheet([
+    ["SKPA","Tahun","Sasaran Strategis","Pernyataan Risiko","Akar Penyebab","Dampak","Skor Kemungkinan","Skor Dampak","Pengendalian yg Ada","Rencana Tindak Pengendalian","Jadwal Implementasi","Penanggung Jawab","Status"],
+    ["Dinas Pendidikan Aceh","2026","Meningkatkan mutu pendidikan","Keterlambatan pencairan dana BOS","Verifikasi dokumen lambat","Operasional sekolah terganggu","4","4","SOP pencairan dana","Digitalisasi verifikasi","2026-06-30","Kabid Pembiayaan","Open"],
+    ["Dinas Kesehatan Aceh","2026","Pelayanan kesehatan merata","Kekurangan vaksin di puskesmas","Distribusi tidak merata","Cakupan imunisasi turun","3","3","Sistem distribusi terjadwal","Dashboard stok vaksin","2026-05-01","Kabid P2P","In Progress"],
+  ]);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Template Risiko");
+  XLSX.writeFile(wb, "Template_Import_Risiko_PERISAI.xlsx");
+}
+
+function printRiskReport(skpa) {
+  if (!skpa) return alert("Pilih SKPA terlebih dahulu.");
+  var items = APP.data.riskRegister.filter(function(r) { return r.skpa === skpa; });
+  var dateStr = new Date().toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  var skpaInfo = APP.data.skpaList.find(function(s) { return s.nama === skpa; });
+  var total = items.length;
+  var critical = items.filter(function(r) { return r.skorKemungkinan * r.skorDampak >= 20; }).length;
+  var high = items.filter(function(r) { var s = r.skorKemungkinan * r.skorDampak; return s >= 12 && s < 20; }).length;
+  var medium = items.filter(function(r) { var s = r.skorKemungkinan * r.skorDampak; return s >= 8 && s < 12; }).length;
+  var low = items.filter(function(r) { return r.skorKemungkinan * r.skorDampak < 8; }).length;
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laporan Risiko ' + skpa + ' - Perisai Aceh</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">' +
+    '<style>' +
+    'body { font-family: "Bricolage Grotesque", sans-serif; padding: 40px; color: #000; line-height: 1.7; -webkit-font-smoothing: antialiased; }' +
+    '.kop { text-align: center; margin-bottom: 32px; border-bottom: 3px solid #006763; padding-bottom: 16px; }' +
+    '.kop h1 { font-size: 22px; font-weight: 900; margin: 0 0 4px; color: #006763; }' +
+    '.kop p { font-size: 12px; color: #555; margin: 2px 0; }' +
+    '.title { font-size: 18px; font-weight: 900; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #00837d; }' +
+    '.info { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }' +
+    '.info-item { flex: 1; min-width: 140px; padding: 12px; border: 1.5px solid #000; border-radius: 8px; text-align: center; }' +
+    '.info-item .num { font-size: 28px; font-weight: 900; }' +
+    '.info-item .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; }' +
+    'table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 24px; }' +
+    'th, td { border: 1px solid #000; padding: 8px; text-align: left; }' +
+    'th { background: #f0f5f4; font-weight: 700; font-size: 11px; }' +
+    '.footer { margin-top: 32px; padding-top: 16px; border-top: 2px solid #ddd; font-size: 11px; color: #888; text-align: center; }' +
+    '@media print { @page { margin: 1.5cm; } .no-print { display: none; } }' +
+    '</style></head><body>' +
+    '<div class="kop"><h1>PEMERINTAH ACEH</h1><p>SISTEM PENGENDALIAN INTERN (PERISAI)</p><p style="font-size:11px;color:#888">Dicetak: ' + dateStr + '</p></div>' +
+    '<div class="title">LAPORAN RISIKO: ' + skpa.toUpperCase() + '</div>' +
+    '<div class="info">' +
+    '<div class="info-item" style="background:#e2f0e6"><div class="num">' + total + '</div><div class="lbl">Total Risiko</div></div>' +
+    '<div class="info-item" style="background:#fce4e4"><div class="num" style="color:#dc2626">' + critical + '</div><div class="lbl">Critical</div></div>' +
+    '<div class="info-item" style="background:#fff3e0"><div class="num" style="color:#f97316">' + high + '</div><div class="lbl">High</div></div>' +
+    '<div class="info-item" style="background:#fffde7"><div class="num" style="color:#ca8a04">' + medium + '</div><div class="lbl">Medium</div></div>' +
+    '<div class="info-item" style="background:#f0fdf4"><div class="num" style="color:#22c55e">' + low + '</div><div class="lbl">Low</div></div>' +
+    '</div>' +
+    (skpaInfo ? '<p style="font-size:12px;margin-bottom:16px"><strong>Alamat:</strong> ' + (skpaInfo.alamat || "-") + ' | <strong>Kontak:</strong> ' + (skpaInfo.kontak || "-") + '</p>' : '') +
+    '<table><thead><tr>' +
+    '<th>No</th><th>Pernyataan Risiko</th><th>Penyebab</th><th>Dampak</th><th style="text-align:center">L</th><th style="text-align:center">I</th><th style="text-align:center">Skor</th><th style="text-align:center">Level</th><th style="text-align:center">Status</th><th>PIC</th>' +
+    '</tr></thead><tbody>' +
+    (items.length === 0 ? '<tr><td colspan="10" style="text-align:center;padding:16px">Belum ada data risiko</td></tr>' :
+      items.map(function(r, i) {
+        var s = r.skorKemungkinan * r.skorDampak;
+        var lvl = s >= 20 ? "Critical" : s >= 12 ? "High" : s >= 8 ? "Medium" : "Low";
+        return '<tr>' +
+          '<td style="text-align:center">' + (i+1) + '</td>' +
+          '<td>' + r.risiko + '</td>' +
+          '<td>' + (r.penyebab || "-") + '</td>' +
+          '<td>' + (r.dampak || "-") + '</td>' +
+          '<td style="text-align:center">' + r.skorKemungkinan + '</td>' +
+          '<td style="text-align:center">' + r.skorDampak + '</td>' +
+          '<td style="text-align:center;font-weight:700">' + s + '</td>' +
+          '<td style="text-align:center"><strong>' + lvl + '</strong></td>' +
+          '<td style="text-align:center">' + r.status + '</td>' +
+          '<td>' + (r.pic || "-") + '</td></tr>';
+      }).join("")
+    ) +
+    '</tbody></table>' +
+    '<div class="footer">Dokumen ini dihasilkan secara otomatis dari Sistem PERISAI Aceh — ' + dateStr + '</div>' +
+    '</body></html>';
+
+  var blob = new Blob([html], { type: "text/html" });
+  var url = URL.createObjectURL(blob);
+  var w = window.open(url, "_blank");
+  if (w) {
+    w.document.title = "Laporan Risiko " + skpa + " - Perisai Aceh";
+    setTimeout(function() { w.print(); }, 500);
+  } else {
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "Laporan_Risiko_" + skpa.replace(/[^a-zA-Z0-9]/g, "_") + ".html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
+// ===== MODUL 2: SPIP =====
+function renderSPIP(el, user) {
+  var isSuper = user.role === "super_admin";
+  var isOfficer = user.role === "risk_officer";
+  var items = APP.data.spipEvidence;
+  if (isOfficer) items = items.filter(function(s) { return s.skpa === user.skpa; });
+  var skpaList = [...new Set(APP.data.spipEvidence.map(function(s) { return s.skpa; }))];
+  var unsurList = ["Lingkungan Pengendalian","Penilaian Risiko","Kegiatan Pengendalian","Informasi & Komunikasi","Pemantauan"];
+
+  var scores = unsurList.map(function(u, idx) {
+    var related = items.filter(function(i) { return i.unsur === u; });
+    var verified = related.filter(function(i) { return i.status === "Terverifikasi"; }).length;
+    var total = Math.max(related.length, 1);
+    return { label: u, score: Math.min(5, (verified / total) * 5), verified: verified, total: related.length };
+  });
+
+  var filterSkpaHtml = isSuper
+    ? '<select id="spip-filter-skpa" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderSPIP(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua SKPA</option>' + skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("") + '</select>' : "";
+
+  var progressHtml = scores.map(function(s, i) {
+    var pct = (s.score / 5 * 100).toFixed(0);
+    var colors = ["#00837d","#f59e0b","#3b82f6","#8b5cf6","#ec4899"];
+    var circ = 2 * Math.PI * 35;
+    var off = circ * (1 - s.score / 5);
+    return '<div class="flex flex-col items-center p-4 bg-surface-container-low rounded-xl border-[1.5px] border-black">' +
+      '<div class="relative w-20 h-20 mb-2"><svg class="w-20 h-20" viewBox="0 0 80 80">' +
+      '<circle cx="40" cy="40" r="35" fill="none" stroke="#dde4de" stroke-width="6"/>' +
+      '<circle cx="40" cy="40" r="35" fill="none" stroke="' + colors[i] + '" stroke-width="6" stroke-dasharray="' + circ + '" stroke-dashoffset="' + off + '" stroke-linecap="round" transform="rotate(-90 40 40)"/>' +
+      '</svg><div class="absolute inset-0 flex items-center justify-center"><span class="font-headline text-sm font-black">' + s.score.toFixed(1) + '</span></div></div>' +
+      '<p class="text-xs font-bold text-center leading-tight">' + s.label + '</p>' +
+      '<p class="text-[9px] text-on-surface-variant mt-1">' + pct + '%</p></div>';
+  }).join("");
+
+  var tbody = items.length === 0
+    ? '<tr><td colspan="5" class="border-[1.5px] border-black p-4 text-center text-on-surface-variant">Belum ada bukti dukung</td></tr>'
+    : items.map(function(s) {
+        var st = s.status === "Terverifikasi" ? "bg-success text-white" : "bg-warning text-black";
+        return '<tr class="hover:bg-surface-container-low">' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px]">' + s.skpa + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px]"><strong>' + s.unsur + '</strong><br><span class="text-xs">' + s.subUnsur + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px] max-w-[200px] truncate">' + (s.uraian || "-") + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center"><span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + st + '">' + s.status + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center">' +
+          '<button onclick="deleteSPIP(' + s.id + ')" class="text-danger"><span class="material-symbols-outlined text-lg">delete</span></button>' +
+          (isSuper ? ' <button onclick="verifySPIP(' + s.id + ')" class="text-primary"><span class="material-symbols-outlined text-lg">check_circle</span></button>' : "") +
+          '</td></tr>';
+      }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex flex-wrap gap-3 items-center">', filterSkpaHtml,
+    '<select id="spip-filter-unsur" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderSPIP(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Unsur</option>' + unsurList.map(function(u) { return '<option value="' + u + '">' + u + '</option>'; }).join("") + '</select>',
+    '<button onclick="showAddSPIPModal()" class="ml-auto bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">upload_file</span> Upload Bukti Dukung</button></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4">Progress Tracker 5 Unsur SPIP</h3><div class="grid grid-cols-1 md:grid-cols-5 gap-5">' + progressHtml + '</div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4">Daftar Bukti Dukung SPIP</h3>',
+    '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container"><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">SKPA</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Unsur / Sub-Unsur</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Uraian</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Aksi</th></tr></thead><tbody>' + tbody + '</tbody></table></div></div></div>'
+  ].join("");
+}
+
+function showAddSPIPModal() {
+  var user = APP.data.sessionUser;
+  var skpaList = [...new Set(APP.data.users.filter(function(u) { return u.role === "risk_officer"; }).map(function(u) { return u.skpa; }))];
+  var unsurList = ["Lingkungan Pengendalian","Penilaian Risiko","Kegiatan Pengendalian","Informasi & Komunikasi","Pemantauan"];
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="spip-modal" onclick="if(event.target===this)closeModal(\'spip-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">Upload Bukti Dukung SPIP</h3><button onclick="closeModal(\'spip-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-spip" class="space-y-4" onsubmit="saveSPIP(event)">',
+    '<div><label class="text-xs font-bold block mb-1">SKPA</label><select id="spip-skpa" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm" ' + (user.role === "risk_officer" ? "disabled" : "") + '>' +
+    (user.role === "risk_officer" ? '<option value="' + user.skpa + '">' + user.skpa + '</option>' : skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("")) + '</select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Unsur</label><select id="spip-unsur" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option value="">-- Pilih Unsur --</option>' + unsurList.map(function(u) { return '<option value="' + u + '">' + u + '</option>'; }).join("") + '</select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Sub-Unsur Penilaian</label><select id="spip-subunsur" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option value="">-- Pilih Unsur Terlebih Dahulu --</option></select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Uraian Kondisi Nyata</label><textarea id="spip-uraian" rows="3" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm"></textarea></div>',
+    '<div><label class="text-xs font-bold block mb-1">Dokumen Bukti Dukung (PDF, max 10MB)</label><input type="file" accept=".pdf,.jpg,.png" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-[1.5px] file:border-black file:bg-primary-container file:text-white file:font-bold"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Link Dokumentasi (opsional)</label><input type="url" placeholder="https://drive.google.com/..." class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div class="flex gap-3 pt-2"><button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">Upload</button><button type="button" onclick="closeModal(\'spip-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button></div>',
+    "</form></div></div>"
+  ].join(""));
+  document.getElementById("spip-unsur").addEventListener("change", function() {
+    var map = {"Lingkungan Pengendalian":["1.1 Penegakan Integritas","1.2 Komitmen terhadap Kompetensi","1.3 Kepemimpinan yang Kondusif"],"Penilaian Risiko":["2.1 Identifikasi Risiko","2.2 Analisis Risiko","2.3 Penanganan Risiko"],"Kegiatan Pengendalian":["3.1 Prosedur Pengendalian","3.2 Pemisahan Tugas","3.3 Pengamanan Aset"],"Informasi & Komunikasi":["4.1 Informasi yang Relevan","4.2 Komunikasi Efektif","4.3 Sistem Informasi"],"Pemantauan":["5.1 Pemantauan Berkelanjutan","5.2 Evaluasi Terpisah","5.3 Tindak Lanjut Temuan"]};
+    var el = document.getElementById("spip-subunsur");
+    el.innerHTML = (map[this.value] || []).map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("");
+  });
+}
+
+function saveSPIP(e) {
+  e.preventDefault();
+  var user = APP.data.sessionUser;
+  var skpaEl = document.getElementById("spip-skpa");
+  APP.data.spipEvidence.push({
+    id: APP.id(APP.data.spipEvidence),
+    skpa: skpaEl ? skpaEl.value : (user.role === "risk_officer" ? user.skpa : ""),
+    unsur: document.getElementById("spip-unsur").value,
+    subUnsur: document.getElementById("spip-subunsur").value,
+    uraian: document.getElementById("spip-uraian").value,
+    status: "Perlu Verifikasi",
+  });
+  APP.save("spipEvidence");
+  closeModal("spip-modal");
+  render();
+}
+
+function deleteSPIP(id) {
+  if (!confirm("Hapus bukti dukung ini?")) return;
+  APP.data.spipEvidence = APP.data.spipEvidence.filter(function(s) { return s.id !== id; });
+  APP.save("spipEvidence");
+  render();
+}
+
+function verifySPIP(id) {
+  var item = APP.data.spipEvidence.find(function(s) { return s.id === id; });
+  if (item) { item.status = "Terverifikasi"; APP.save("spipEvidence"); render(); }
+}
+
+// ===== MODUL 3: TLHP =====
+function renderTLHP(el, user) {
+  var isSuper = user.role === "super_admin";
+  var isOfficer = user.role === "risk_officer";
+  var items = APP.data.tlhpItems;
+  if (isOfficer) items = items.filter(function(t) { return t.skpa === user.skpa; });
+  var skpaList = [...new Set(APP.data.tlhpItems.map(function(t) { return t.skpa; }))];
+  var filterSkpaHtml = isSuper ? '<select id="tlhp-filter-skpa" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderTLHP(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua SKPA</option>' + skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("") + '</select>' : "";
+  var totalSetor = items.reduce(function(s, t) { return s + (t.nilaiSetor || 0); }, 0);
+
+  var tbody = items.length === 0
+    ? '<tr><td colspan="7" class="border-[1.5px] border-black p-4 text-center text-on-surface-variant">Belum ada data TLHP</td></tr>'
+    : items.map(function(t) {
+        var now = new Date();
+        var due = new Date(t.batasWaktu);
+        var daysLeft = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+        var overDue = daysLeft < 0;
+        var stBadge = t.status === "SS" ? "bg-success text-white" : t.status === "BS" ? "bg-warning text-black" : "bg-danger text-white";
+        return '<tr class="hover:bg-surface-container-low ' + (overDue && t.status !== "SS" ? "countdown-warning" : "") + '">' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px]">' + t.skpa + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px]">' + t.nomorLhp + '<br><span class="text-[9px] text-on-surface-variant">' + t.kodeTemuan + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-[13px] max-w-[200px] truncate" title="' + t.rekomendasiAuditor.replace(/"/g, "&quot;") + '">' + t.rekomendasiAuditor + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center text-[13px]">' + t.batasWaktu + '<br><span class="text-[9px] font-bold ' + (overDue ? "text-danger" : "text-on-surface-variant") + '">' + (overDue ? "Telat " + Math.abs(daysLeft) + " hari" : daysLeft + " hari") + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-right text-[13px]">Rp ' + (t.nominalTemuan || 0).toLocaleString("id-ID") + '</td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center"><span class="inline-block text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + stBadge + '">' + t.status + '</span></td>' +
+          '<td class="border-[1.5px] border-black p-2 text-center">' +
+          ((isOfficer || isSuper) ? '<button onclick="editTLHP(' + t.id + ')" class="text-primary"><span class="material-symbols-outlined text-lg">edit</span></button> ' : "") +
+          (isSuper ? '<button onclick="verifyTLHP(' + t.id + ')" class="text-primary" title="Verifikasi"><span class="material-symbols-outlined text-lg">how_to_reg</span></button>' : "") +
+          '</td></tr>';
+      }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex flex-wrap gap-3 items-center">', filterSkpaHtml,
+    '<select id="tlhp-filter-status" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderTLHP(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Status</option><option value="SS">SS - Selesai Sesuai</option><option value="BS">BS - Belum Sesuai</option><option value="TD">TD - Belum Ditindaklanjuti</option></select>',
+    ((isOfficer || isSuper) ? '<button onclick="showAddTLHPModal()" class="ml-auto bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">add</span> Input Tindak Lanjut</button>' : ""),
+    '</div>',
+    '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">',
+    '<div class="bg-surface p-4 rounded-xl border-[1.5px] border-black neubrutalism-shadow text-center"><span class="material-symbols-outlined text-3xl text-success">check_circle</span><p class="font-headline text-2xl font-black">' + items.filter(function(t) { return t.status === "SS"; }).length + '</p><p class="text-xs font-bold">SS - Selesai Sesuai</p></div>',
+    '<div class="bg-surface p-4 rounded-xl border-[1.5px] border-black neubrutalism-shadow text-center"><span class="material-symbols-outlined text-3xl text-warning">warning</span><p class="font-headline text-2xl font-black">' + items.filter(function(t) { return t.status === "BS"; }).length + '</p><p class="text-xs font-bold">BS - Belum Sesuai</p></div>',
+    '<div class="bg-surface p-4 rounded-xl border-[1.5px] border-black neubrutalism-shadow text-center"><span class="material-symbols-outlined text-3xl text-danger">cancel</span><p class="font-headline text-2xl font-black">' + items.filter(function(t) { return t.status === "TD"; }).length + '</p><p class="text-xs font-bold">TD - Belum Ditindaklanjuti</p></div>',
+    '<div class="bg-surface p-4 rounded-xl border-[1.5px] border-black neubrutalism-shadow text-center"><span class="material-symbols-outlined text-3xl text-primary">payments</span><p class="font-headline text-2xl font-black">' + totalSetor.toLocaleString("id-ID") + '</p><p class="text-xs font-bold">Total Setor (Rp)</p></div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4">Daftar Tindak Lanjut Hasil Audit</h3>',
+    '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container">' +
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">SKPA</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">No. LHP / Temuan</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Rekomendasi</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Batas Waktu</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-right">Nominal</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Aksi</th>' +
+    '</tr></thead><tbody>' + tbody + '</tbody></table></div></div></div>'
+  ].join("");
+}
+
+function showAddTLHPModal(data) {
+  var user = APP.data.sessionUser;
+  var isEdit = !!data;
+  var lhpList = [...new Set(APP.data.tlhpItems.map(function(t) { return t.nomorLhp; }))];
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="tlhp-modal" onclick="if(event.target===this)closeModal(\'tlhp-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">' + (isEdit ? "Edit" : "Input") + ' Tindak Lanjut TLHP</h3><button onclick="closeModal(\'tlhp-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-tlhp" class="space-y-4" onsubmit="saveTLHP(event)"><input type="hidden" id="tlhp-id" value="' + (data ? data.id : "") + '">',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">SKPA</label><select id="tlhp-skpa" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm" ' + (user.role === "risk_officer" ? "disabled" : "") + '>' + (user.role === "risk_officer" ? '<option value="' + user.skpa + '">' + user.skpa + '</option>' : '<option value="' + (data ? data.skpa : "") + '">' + (data ? data.skpa : "Pilih SKPA") + '</option>') + '</select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Nomor LHP</label><input type="text" id="tlhp-nomor" value="' + (data ? data.nomorLhp : "") + '" list="tlhp-list" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><datalist id="tlhp-list">' + lhpList.map(function(l) { return '<option value="' + l + '">'; }).join("") + '</datalist></div></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Tanggal LHP</label><input type="date" id="tlhp-tgl" value="' + (data ? data.tanggalLhp : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Kode Temuan</label><input type="text" id="tlhp-kode" value="' + (data ? data.kodeTemuan : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div></div>',
+    '<div><label class="text-xs font-bold block mb-1">Rekomendasi Auditor</label><textarea id="tlhp-rekomendasi" rows="2" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? data.rekomendasiAuditor : "") + '</textarea></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Nilai Nominal Temuan (Rp)</label><input type="number" id="tlhp-nominal" value="' + (data ? data.nominalTemuan : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Nilai Setor (Rp)</label><input type="number" id="tlhp-setor" value="' + (data ? data.nilaiSetor : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div></div>',
+    '<div><label class="text-xs font-bold block mb-1">Tindakan yang Dilakukan</label><textarea id="tlhp-tindakan" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm">' + (data ? data.tindakan : "") + '</textarea></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Batas Waktu (60 hari)</label><input type="date" id="tlhp-batas" value="' + (data ? data.batasWaktu : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">PIC</label><input type="text" id="tlhp-pic" value="' + (data ? data.pic : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div></div>',
+    '<div><label class="text-xs font-bold block mb-1">Status</label><select id="tlhp-status" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm">' +
+    '<option value="TD" ' + (data && data.status === "TD" ? "selected" : "") + '>TD - Belum Ditindaklanjuti</option>' +
+    '<option value="BS" ' + (data && data.status === "BS" ? "selected" : "") + '>BS - Belum Sesuai</option>' +
+    '<option value="SS" ' + (data && data.status === "SS" ? "selected" : "") + '>SS - Selesai Sesuai</option></select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Bukti Penyelesaian (PDF/Gambar)</label><input type="file" accept=".pdf,.jpg,.png" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-[1.5px] file:border-black file:bg-primary-container file:text-white file:font-bold"></div>',
+    '<div class="flex gap-3 pt-2"><button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">Simpan</button><button type="button" onclick="closeModal(\'tlhp-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button></div>',
+    "</form></div></div>"
+  ].join(""));
+}
+
+function saveTLHP(e) {
+  e.preventDefault();
+  var id = document.getElementById("tlhp-id").value;
+  var user = APP.data.sessionUser;
+  var skpaEl = document.getElementById("tlhp-skpa");
+  var data = {
+    skpa: skpaEl ? skpaEl.value : (user.role === "risk_officer" ? user.skpa : ""),
+    nomorLhp: document.getElementById("tlhp-nomor").value,
+    tanggalLhp: document.getElementById("tlhp-tgl").value,
+    kodeTemuan: document.getElementById("tlhp-kode").value,
+    rekomendasiAuditor: document.getElementById("tlhp-rekomendasi").value,
+    nominalTemuan: parseInt(document.getElementById("tlhp-nominal").value) || 0,
+    nilaiSetor: parseInt(document.getElementById("tlhp-setor").value) || 0,
+    tindakan: document.getElementById("tlhp-tindakan").value,
+    batasWaktu: document.getElementById("tlhp-batas").value,
+    pic: document.getElementById("tlhp-pic").value,
+    status: document.getElementById("tlhp-status").value,
+    buktiUrl: "", tglInput: new Date().toISOString().slice(0, 10),
+  };
+  if (id) {
+    var idx = APP.data.tlhpItems.findIndex(function(t) { return t.id == id; });
+    if (idx > -1) { for (var k in data) APP.data.tlhpItems[idx][k] = data[k]; }
+  } else {
+    data.id = APP.id(APP.data.tlhpItems);
+    APP.data.tlhpItems.push(data);
+  }
+  APP.save("tlhpItems");
+  closeModal("tlhp-modal");
+  render();
+}
+
+function editTLHP(id) {
+  var data = APP.data.tlhpItems.find(function(t) { return t.id === id; });
+  if (data) showAddTLHPModal(data);
+}
+
+function verifyTLHP(id) {
+  var item = APP.data.tlhpItems.find(function(t) { return t.id === id; });
+  if (item && item.status === "BS") { item.status = "SS"; APP.save("tlhpItems"); render(); }
+  else if (item) { alert("Status sudah SS atau TD. Hanya status BS yang bisa diverifikasi."); }
+}
+
+// ===== MODUL 4: FRAUD DETECTION =====
+function renderFraud(el, user) {
+  var isSuper = user.role === "super_admin";
+  var isOfficer = user.role === "risk_officer";
+  var alerts = APP.data.fraudAlerts;
+  if (isOfficer) alerts = alerts.filter(function(a) { return a.skpa === user.skpa; });
+  var sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+  alerts.sort(function(a,b) { return sevOrder[a.severity] - sevOrder[b.severity]; });
+  var skpaList = [...new Set(APP.data.fraudAlerts.map(function(a) { return a.skpa; }))];
+  var fraudIndex = alerts.length > 0 ? Math.min(100, Math.round(alerts.filter(function(a) { return a.severity === "critical" || a.severity === "high"; }).length / Math.max(alerts.length, 1) * 100)) : 0;
+  var circ = 2 * Math.PI * 45;
+  var off = circ * (1 - fraudIndex / 100);
+  var idxColor = fraudIndex > 60 ? "#dc2626" : fraudIndex > 30 ? "#f59e0b" : "#00837d";
+
+  var alertsHtml = alerts.length === 0
+    ? '<p class="text-sm text-on-surface-variant">Tidak ada alert fraud.</p>'
+    : alerts.map(function(a) {
+        var bg = a.severity === "critical" ? "bg-red-50" : a.severity === "high" ? "bg-amber-50" : "bg-surface";
+        var icon = a.severity === "critical" ? "gpp_bad" : a.severity === "high" ? "error" : "info";
+        var icnColor = a.severity === "critical" ? "text-danger" : a.severity === "high" ? "text-warning" : "text-primary";
+        var sevColor = a.severity === "critical" ? "bg-danger text-white" : a.severity === "high" ? "bg-warning text-black" : "bg-badge-accent text-black";
+        return '<div class="flex items-start gap-3 p-4 rounded-xl border-[1.5px] border-black ' + bg + '">' +
+          '<span class="material-symbols-outlined text-3xl ' + icnColor + '">' + icon + '</span>' +
+          '<div class="flex-1"><div class="flex items-center gap-2 mb-1"><span class="font-headline text-sm font-black">' + a.kategori + '</span><span class="text-xs px-2 py-0.5 rounded-full font-bold border-[1.5px] border-black ' + sevColor + '">' + a.severity.toUpperCase() + '</span></div>' +
+          '<p class="text-xs">' + a.skpa + '</p><p class="text-xs text-on-surface-variant mt-1">' + a.deskripsi + '</p>' +
+          '<p class="text-xs text-on-surface-variant mt-1">' + a.tanggal + (a.nilai > 0 ? ' | Nilai: Rp ' + a.nilai.toLocaleString("id-ID") : "") + '</p></div>' +
+          (isSuper ? '<button onclick="resolveFraud(' + a.id + ')" class="text-success" title="Resolve"><span class="material-symbols-outlined">check_circle</span></button>' : "") + '</div>';
+      }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex flex-wrap gap-3 items-center">',
+    (isSuper ? '<select id="fraud-filter-skpa" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderFraud(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua SKPA</option>' + skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("") + '</select>' : ""),
+    '<select id="fraud-filter-severity" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderFraud(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Severity</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>',
+    (isSuper ? '<button onclick="showFraudConfigModal()" class="ml-auto bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">tune</span> Konfigurasi Threshold AI</button>' : ""),
+    '</div>',
+    '<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">',
+    '<div class="lg:col-span-1 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow flex flex-col items-center justify-center">' +
+    '<div class="relative w-28 h-28 mb-3"><svg class="w-28 h-28" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="#dde4de" stroke-width="8"/><circle cx="50" cy="50" r="45" fill="none" stroke="' + idxColor + '" stroke-width="8" stroke-dasharray="' + circ + '" stroke-dashoffset="' + off + '" stroke-linecap="round" transform="rotate(-90 50 50)"/></svg>' +
+    '<div class="absolute inset-0 flex items-center justify-center"><span class="font-headline text-2xl font-black">' + fraudIndex + '</span></div></div>' +
+    '<p class="font-headline text-sm font-black">Fraud Risk Index</p><p class="text-xs text-on-surface-variant">' + (fraudIndex > 60 ? "High Risk" : fraudIndex > 30 ? "Medium Risk" : "Low Risk") + '</p></div>',
+    '<div class="lg:col-span-3 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-danger">warning</span> Red Flag Alerts (' + alerts.length + ')</h3>',
+    '<div class="space-y-3">' + alertsHtml + '</div></div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">psychology</span> AI Detection Rules</h3>',
+    '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">',
+    '<div class="p-4 border-[1.5px] border-black rounded-xl bg-surface-container-low"><div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-warning">content_cut</span><span class="font-headline text-sm font-black">Pecah Paket</span></div><p class="text-xs">Threshold: <strong>Rp 200.000.000</strong></p><p class="text-xs text-on-surface-variant">Mendeteksi paket pengadaan langsung bernilai Rp 195jt - Rp 199.9jt yang berdekatan</p></div>',
+    '<div class="p-4 border-[1.5px] border-black rounded-xl bg-surface-container-low"><div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-danger">person_off</span><span class="font-headline text-sm font-black">Monopoli Pemenang</span></div><p class="text-xs">Threshold: <strong>&gt; 60%</strong> kemenangan</p><p class="text-xs text-on-surface-variant">Mendeteksi dominasi vendor tertentu pada SKPA tertentu</p></div>',
+    '<div class="p-4 border-[1.5px] border-black rounded-xl bg-surface-container-low"><div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-primary">trending_up</span><span class="font-headline text-sm font-black">Spiking Akhir Tahun</span></div><p class="text-xs">Threshold: <strong>&gt; 60%</strong> lonjakan Q4</p><p class="text-xs text-on-surface-variant">Mendeteksi realisasi anggaran tidak wajar di triwulan IV</p></div>',
+    "</div></div></div>"
+  ].join("");
+}
+
+function resolveFraud(id) {
+  APP.data.fraudAlerts = APP.data.fraudAlerts.filter(function(a) { return a.id !== id; });
+  APP.save("fraudAlerts");
+  render();
+}
+
+function showFraudConfigModal() {
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="fraud-modal" onclick="if(event.target===this)closeModal(\'fraud-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">Konfigurasi Threshold AI Fraud</h3><button onclick="closeModal(\'fraud-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form class="space-y-4" onsubmit="event.preventDefault();alert(\'Konfigurasi disimpan!\');closeModal(\'fraud-modal\')">',
+    '<div><label class="text-xs font-bold block mb-1">Kategori Dokumen</label><select class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option>Pengadaan Barang/Jasa</option><option>Perjalanan Dinas</option><option>Bansos</option></select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Ambang Batas Nilai Paket</label><input type="number" value="200000000" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Deviansi Anggaran</label><input type="range" min="10" max="100" value="60" class="w-full" oninput="this.nextElementSibling.textContent=this.value+\'%\'"><span class="font-headline text-sm font-black">60%</span></div>',
+    '<div><label class="text-xs font-bold block mb-1">Algoritma</label><select class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option>Rule-Based + ML</option><option>Benford Law</option><option>Text Mining</option><option>Hybrid</option></select></div>',
+    '<button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm w-full">Simpan Konfigurasi</button></form></div></div>'
+  ].join(""));
+}
+
+// ===== MODUL 5: COMPLIANCE =====
+function renderCompliance(el, user) {
+  var isSuper = user.role === "super_admin";
+  var isOfficer = user.role === "risk_officer";
+  var items = APP.data.complianceChecks;
+  if (isOfficer) items = items.filter(function(c) { return c.skpa === user.skpa; });
+  var skpaList = [...new Set(APP.data.complianceChecks.map(function(c) { return c.skpa; }))];
+  var total = items.length;
+  var sesuai = items.filter(function(c) { return c.status === "Sesuai"; }).length;
+  var pct = total > 0 ? Math.round(sesuai / total * 100) : 0;
+  var circ = 2 * Math.PI * 45;
+  var off = circ * (1 - pct / 100);
+  var pctColor = pct >= 80 ? "#00837d" : pct >= 50 ? "#f59e0b" : "#dc2626";
+
+  var itemsHtml = items.length === 0
+    ? '<p class="text-sm text-on-surface-variant">Belum ada data compliance.</p>'
+    : items.map(function(c) {
+        var bg = c.status === "Sesuai" ? "bg-green-50" : "bg-red-50";
+        var icon = c.status === "Sesuai" ? "check_circle" : "cancel";
+        var icnColor = c.status === "Sesuai" ? "text-success" : "text-danger";
+        var stColor = c.status === "Sesuai" ? "bg-success text-white" : "bg-danger text-white";
+        return '<div class="flex items-center gap-3 p-3 rounded-xl border-[1.5px] border-black ' + bg + '">' +
+          '<span class="material-symbols-outlined ' + icnColor + '">' + icon + '</span>' +
+          '<div class="flex-1 min-w-0"><p class="text-sm font-bold">' + c.regulasi + '</p>' +
+          '<p class="text-xs text-on-surface-variant">' + c.skpa + (c.catatan ? " | Catatan: " + c.catatan : "") + '</p></div>' +
+          '<span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + stColor + '">' + c.status + '</span>' +
+          '<span class="text-[9px] text-on-surface-variant">' + c.checkedDate + '</span>' +
+          '<button onclick="deleteCompliance(' + c.id + ')" class="text-danger"><span class="material-symbols-outlined text-lg">delete</span></button></div>';
+      }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex flex-wrap gap-3 items-center">',
+    (isSuper ? '<select id="comp-filter-skpa" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderCompliance(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua SKPA</option>' + skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("") + '</select>' : ""),
+    '<select id="comp-filter-status" class="px-4 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm neubrutalism-shadow-sm" onchange="renderCompliance(document.getElementById(\'page-content\'), APP.data.sessionUser)"><option value="">Semua Status</option><option value="Sesuai">Sesuai</option><option value="Tidak Sesuai">Tidak Sesuai</option></select>',
+    ((isOfficer || isSuper) ? '<button onclick="showAddComplianceModal()" class="ml-auto bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">playlist_add</span> Tambah Checklist</button>' : ""),
+    '</div>',
+    '<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">',
+    '<div class="lg:col-span-1 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow flex flex-col items-center justify-center">' +
+    '<div class="relative w-28 h-28 mb-3"><svg class="w-28 h-28" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="#dde4de" stroke-width="8"/><circle cx="50" cy="50" r="45" fill="none" stroke="' + pctColor + '" stroke-width="8" stroke-dasharray="' + circ + '" stroke-dashoffset="' + off + '" stroke-linecap="round" transform="rotate(-90 50 50)"/></svg>' +
+    '<div class="absolute inset-0 flex items-center justify-center"><span class="font-headline text-2xl font-black">' + pct + '%</span></div></div>' +
+    '<p class="font-headline text-sm font-black">Compliance Score</p><p class="text-xs text-on-surface-variant">' + sesuai + '/' + total + ' regulasi sesuai</p></div>',
+    '<div class="lg:col-span-3 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">gavel</span> Daftar Regulasi & Compliance Checklist</h3>',
+    '<div class="space-y-2">' + itemsHtml + '</div></div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">new_releases</span> Pembaruan Regulasi Terbaru</h3>',
+    '<div class="space-y-3">',
+    '<div class="flex items-center gap-3 p-3 rounded-xl border-[1.5px] border-black bg-badge-accent"><span class="material-symbols-outlined text-primary">new_releases</span><div class="flex-1"><p class="text-sm font-bold">Qanun Aceh No. 3/2026 - Perubahan APBA 2026</p><p class="text-xs text-on-surface-variant">Ditetapkan 15 Maret 2026. Wajib diimplementasikan seluruh SKPA dalam 30 hari.</p></div><span class="text-xs px-2 py-1 rounded-full bg-danger text-white font-bold border-[1.5px] border-black">BARU</span></div>',
+    '<div class="flex items-center gap-3 p-3 rounded-xl border-[1.5px] border-black"><span class="material-symbols-outlined text-primary">info</span><div class="flex-1"><p class="text-sm font-bold">Pergub Aceh No. 8/2026 - Pedoman Pengelolaan Keuangan Daerah</p><p class="text-xs text-on-surface-variant">Mulai berlaku 1 April 2026. Mengganti Pergub sebelumnya.</p></div><span class="text-xs px-2 py-1 rounded-full bg-warning text-black font-bold border-[1.5px] border-black">AKAN DATANG</span></div>',
+    "</div></div></div>"
+  ].join("");
+}
+
+function showAddComplianceModal() {
+  var user = APP.data.sessionUser;
+  var skpaList = [...new Set(APP.data.users.filter(function(u) { return u.role === "risk_officer"; }).map(function(u) { return u.skpa; }))];
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="comp-modal" onclick="if(event.target===this)closeModal(\'comp-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">Tambah Compliance Checklist</h3><button onclick="closeModal(\'comp-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-comp" class="space-y-4" onsubmit="saveCompliance(event)">',
+    '<div><label class="text-xs font-bold block mb-1">SKPA</label><select id="comp-skpa" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm" ' + (user.role === "risk_officer" ? "disabled" : "") + '>' +
+    (user.role === "risk_officer" ? '<option value="' + user.skpa + '">' + user.skpa + '</option>' : skpaList.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join("")) + '</select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Regulasi</label><input type="text" id="comp-regulasi" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Status Kepatuhan</label><select id="comp-status" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"><option value="Sesuai">Sesuai</option><option value="Tidak Sesuai">Tidak Sesuai</option></select></div>',
+    '<div><label class="text-xs font-bold block mb-1">Catatan</label><textarea id="comp-catatan" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black text-sm"></textarea></div>',
+    '<div class="flex gap-3 pt-2"><button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">Simpan</button><button type="button" onclick="closeModal(\'comp-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button></div>',
+    "</form></div></div>"
+  ].join(""));
+}
+
+function saveCompliance(e) {
+  e.preventDefault();
+  var user = APP.data.sessionUser;
+  var skpaEl = document.getElementById("comp-skpa");
+  APP.data.complianceChecks.push({
+    id: APP.id(APP.data.complianceChecks),
+    skpa: skpaEl ? skpaEl.value : (user.role === "risk_officer" ? user.skpa : ""),
+    regulasi: document.getElementById("comp-regulasi").value,
+    status: document.getElementById("comp-status").value,
+    catatan: document.getElementById("comp-catatan").value,
+    checkedDate: new Date().toISOString().slice(0, 10),
+  });
+  APP.save("complianceChecks");
+  closeModal("comp-modal");
+  render();
+}
+
+function deleteCompliance(id) {
+  if (!confirm("Hapus compliance check ini?")) return;
+  APP.data.complianceChecks = APP.data.complianceChecks.filter(function(c) { return c.id !== id; });
+  APP.save("complianceChecks");
+  render();
+}
+
+// ===== MODUL 6: USERS =====
+function renderUsers(el, user) {
+  if (user.role !== "super_admin") {
+    el.innerHTML = '<div class="flex items-center justify-center h-48"><p class="text-on-surface-variant">Anda tidak memiliki akses ke modul ini.</p></div>';
+    return;
+  }
+  var rows = APP.data.users.map(function(u) {
+    var roleColor = u.role === "super_admin" ? "bg-danger text-white" : u.role === "risk_officer" ? "bg-primary-container text-white" : "bg-warning text-black";
+    return '<tr class="hover:bg-surface-container-low">' +
+      '<td class="border-[1.5px] border-black p-2 text-[13px] font-bold">' + u.nama + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-[13px]">' + u.email + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-[13px]"><span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + roleColor + '">' + APP.getRoleLabel(u.role) + '</span></td>' +
+      '<td class="border-[1.5px] border-black p-2 text-[13px]">' + u.skpa + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-center"><span class="' + (u.aktif ? "text-success" : "text-danger") + ' material-symbols-outlined">' + (u.aktif ? "check_circle" : "cancel") + '</span></td>' +
+      '<td class="border-[1.5px] border-black p-2 text-center">' +
+      '<button onclick="editUser(' + u.id + ')" class="text-primary"><span class="material-symbols-outlined text-lg">edit</span></button> ' +
+      '<button onclick="toggleUser(' + u.id + ')" class="text-warning"><span class="material-symbols-outlined text-lg">' + (u.aktif ? "block" : "check_circle") + '</span></button> ' +
+      '<button onclick="deleteUser(' + u.id + ')" class="text-danger"><span class="material-symbols-outlined text-lg">delete</span></button></td></tr>';
+  }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex justify-between items-center"><p class="text-sm text-on-surface-variant">Total ' + APP.data.users.length + ' pengguna terdaftar</p>',
+    '<button onclick="showAddUserModal()" class="bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">person_add</span> Tambah Pengguna</button></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow overflow-x-auto">',
+    '<table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container">' +
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Nama</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Email</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Role</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">SKPA</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Aksi</th>' +
+    '</tr></thead><tbody>' + (APP.data.users.length === 0 ? '<tr><td colspan="6" class="text-center py-4">Belum ada pengguna</td></tr>' : rows) + '</tbody></table></div></div>'
+  ].join("");
+}
+
+function showAddUserModal(data) {
+  var isEdit = !!data;
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="user-modal" onclick="if(event.target===this)closeModal(\'user-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">' + (isEdit ? "Edit" : "Tambah") + ' Pengguna</h3><button onclick="closeModal(\'user-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-user" class="space-y-4" onsubmit="saveUser(event)">',
+    '<input type="hidden" id="user-id" value="' + (data ? data.id : "") + '">',
+    '<div><label class="text-xs font-bold block mb-1">Nama Lengkap</label><input type="text" id="user-nama" value="' + (data ? data.nama : "") + '" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Email</label><input type="email" id="user-email" value="' + (data ? data.email : "") + '" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Password</label><input type="text" id="user-password" value="' + (data ? data.password : "") + '" ' + (!data ? "required" : "") + ' class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div class="grid grid-cols-2 gap-4">',
+    '<div><label class="text-xs font-bold block mb-1">Role</label><select id="user-role" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm" onchange="document.getElementById(\'user-skpa-group\').style.display=this.value===\'risk_officer\'?\'\':\'none\'">' +
+    '<option value="super_admin" ' + (data && data.role === "super_admin" ? "selected" : "") + '>Super Admin / Inspektorat</option>' +
+    '<option value="risk_officer" ' + (data && data.role === "risk_officer" ? "selected" : "") + '>Risk Officer SKPA</option>' +
+    '<option value="eksekutif" ' + (data && data.role === "eksekutif" ? "selected" : "") + '>Eksekutif</option></select></div>',
+    '<div id="user-skpa-group" style="' + ((data && data.role === "risk_officer") ? "display:block" : "display:none") + '"><label class="text-xs font-bold block mb-1">SKPA</label><select id="user-skpa" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm">' +
+    '<option value="">-- Pilih SKPA --</option>' +
+    APP.data.skpaList.filter(function(s) { return s.aktif; }).map(function(s) {
+      return '<option value="' + s.nama + '" ' + (data && data.skpa === s.nama ? "selected" : "") + '>' + s.nama + '</option>';
+    }).join("") +
+    '</select></div>',
+    '<div class="flex gap-3 pt-2"><button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">' + (isEdit ? "Simpan" : "Tambah") + '</button><button type="button" onclick="closeModal(\'user-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button></div>',
+    "</form></div></div>"
+  ].join(""));
+}
+
+function saveUser(e) {
+  e.preventDefault();
+  var id = document.getElementById("user-id").value;
+  var data = {
+    nama: document.getElementById("user-nama").value,
+    email: document.getElementById("user-email").value,
+    password: document.getElementById("user-password").value,
+    role: document.getElementById("user-role").value,
+    skpa: (document.getElementById("user-skpa") ? document.getElementById("user-skpa").value : "-"),
+    aktif: true,
+  };
+  if (id) {
+    var idx = APP.data.users.findIndex(function(u) { return u.id == id; });
+    if (idx > -1) { for (var k in data) APP.data.users[idx][k] = data[k]; }
+  } else {
+    data.id = APP.id(APP.data.users);
+    APP.data.users.push(data);
+  }
+  APP.save("users");
+  closeModal("user-modal");
+  render();
+}
+
+function editUser(id) {
+  var data = APP.data.users.find(function(u) { return u.id === id; });
+  if (data) showAddUserModal(data);
+}
+
+function toggleUser(id) {
+  var user = APP.data.users.find(function(u) { return u.id === id; });
+  if (user) { user.aktif = !user.aktif; APP.save("users"); render(); }
+}
+
+function deleteUser(id) {
+  if (!confirm("Hapus pengguna ini?")) return;
+  APP.data.users = APP.data.users.filter(function(u) { return u.id !== id; });
+  APP.save("users");
+  render();
+}
+
+// ===== DASHBOARD =====
+function renderDashboard(el, user) {
+  var riskCount = APP.data.riskRegister.filter(function(r) { return user.role === "super_admin" || r.skpa === user.skpa; }).length;
+  var openRisk = APP.data.riskRegister.filter(function(r) { return (user.role === "super_admin" || r.skpa === user.skpa) && r.status === "Open"; }).length;
+  var tlhpCount = APP.data.tlhpItems.filter(function(t) { return user.role === "super_admin" || t.skpa === user.skpa; }).length;
+  var tlhpPending = APP.data.tlhpItems.filter(function(t) { return (user.role === "super_admin" || t.skpa === user.skpa) && t.status !== "SS"; }).length;
+  var fraudCritical = APP.data.fraudAlerts.filter(function(f) { return user.role === "super_admin" || f.skpa === user.skpa; }).filter(function(f) { return f.severity === "critical" || f.severity === "high"; }).length;
+  var compDone = APP.data.complianceChecks.filter(function(c) { return user.role === "super_admin" || c.skpa === user.skpa; }).filter(function(c) { return c.status === "Sesuai"; }).length;
+  var compTotal = APP.data.complianceChecks.filter(function(c) { return user.role === "super_admin" || c.skpa === user.skpa; }).length;
+  var compPct = compTotal > 0 ? Math.round(compDone / compTotal * 100) : 0;
+  var riskArr = APP.data.riskRegister.filter(function(r) { return user.role === "super_admin" || r.skpa === user.skpa; });
+  var avgRisk = riskCount > 0 ? (riskArr.reduce(function(s, r) { return s + r.skorKemungkinan * r.skorDampak; }, 0) / riskCount).toFixed(1) : 0;
+  var spipScores = [3.2, 2.8, 3.5, 3.0, 2.5];
+  var spipAvg = (spipScores.reduce(function(a,b) { return a+b; }, 0) / 5).toFixed(1);
+  var compCirc = 2 * Math.PI * 54;
+  var compOff = compCirc * (1 - compPct / 100);
+
+  var heatRows = "";
+  for (var l = 5; l >= 1; l--) {
+    heatRows += '<tr><td class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold text-center">' + l + '</td>';
+    for (var im = 1; im <= 5; im++) {
+      var cnt = riskArr.filter(function(r) { return r.skorKemungkinan === l && r.skorDampak === im; }).length;
+      var sc = l * im;
+      var color = "#86efac", tc = "#000";
+      if (sc >= 20) { color = "#450a0a"; tc = "#fff"; }
+      else if (sc >= 12) { color = "#dc2626"; tc = "#fff"; }
+      else if (sc >= 8) { color = "#f59e0b"; }
+      else if (sc >= 4) { color = "#eab308"; }
+      heatRows += '<td class="border-[1.5px] border-black p-2 text-center font-bold heatmap-cell" style="background:' + color + ';color:' + tc + ';min-width:56px">' + (cnt || "") + "</td>";
+    }
+    heatRows += "</tr>";
+  }
+
+  var fraudList = APP.data.fraudAlerts.filter(function(f) { return user.role === "super_admin" || f.skpa === user.skpa; }).slice(0, 3).map(function(f) {
+    var icon = f.severity === "critical" ? "gpp_bad" : f.severity === "high" ? "error" : "info";
+    var ic = f.severity === "critical" ? "text-danger" : f.severity === "high" ? "text-warning" : "text-primary";
+    var sc = f.severity === "critical" ? "bg-danger text-white" : f.severity === "high" ? "bg-warning text-black" : "bg-badge-accent text-black";
+    return '<div class="flex items-start gap-3 p-3 border-b-[2px] border-black last:border-0">' +
+      '<span class="material-symbols-outlined ' + ic + '">' + icon + '</span>' +
+      '<div class="flex-1 min-w-0"><p class="text-sm font-bold">' + f.kategori + '</p><p class="text-xs text-on-surface-variant">' + f.skpa + " - " + f.deskripsi + '</p></div>' +
+      '<span class="text-xs px-2 py-1 rounded-full font-bold border-[1.5px] border-black ' + sc + '">' + f.severity.toUpperCase() + "</span></div>";
+  }).join("") || '<p class="text-sm text-on-surface-variant">Belum ada alert fraud</p>';
+
+  var spipLabels = ["Lingkungan Pengendalian","Penilaian Risiko","Kegiatan Pengendalian","Informasi & Komunikasi","Pemantauan"];
+  var spipColors = ["#00837d","#f59e0b","#3b82f6","#8b5cf6","#ec4899"];
+  var spipBars = spipScores.map(function(s, i) {
+    return '<div><div class="flex justify-between items-center mb-1"><span class="text-xs font-bold">' + spipLabels[i] + '</span><span class="text-xs font-bold">' + s.toFixed(1) + '/5</span></div>' +
+      '<div class="w-full h-3 bg-surface-variant rounded-full border-[1.5px] border-black overflow-hidden"><div class="h-full transition-all duration-500" style="width:' + (s/5*100) + '%;background:' + spipColors[i] + ';border-radius:9999px"></div></div></div>';
+  }).join("");
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">',
+    '<div class="bg-surface p-5 rounded-xl border-[1.5px] border-black neubrutalism-shadow interactive-element"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-primary-container rounded-xl border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined text-white text-2xl">map</span></div><div><p class="text-xs text-on-surface-variant">Total Risiko</p><p class="font-headline text-2xl font-black">' + riskCount + '</p></div></div><div class="mt-2 flex gap-1"><span class="text-xs px-2 py-0.5 rounded-full bg-danger text-white font-bold">' + openRisk + ' Open</span><span class="text-xs px-2 py-0.5 rounded-full bg-success text-white font-bold">' + (riskCount - openRisk) + ' Tertangani</span></div></div>',
+    '<div class="bg-surface p-5 rounded-xl border-[1.5px] border-black neubrutalism-shadow interactive-element"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-primary-container rounded-xl border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined text-white text-2xl">verified</span></div><div><p class="text-xs text-on-surface-variant">Maturitas SPIP</p><p class="font-headline text-2xl font-black">' + spipAvg + '</p></div></div><p class="text-xs text-on-surface-variant mt-1">Skala 1-5 (BPKP Standard)</p></div>',
+    '<div class="bg-surface p-5 rounded-xl border-[1.5px] border-black neubrutalism-shadow interactive-element"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-primary-container rounded-xl border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined text-white text-2xl">fact_check</span></div><div><p class="text-xs text-on-surface-variant">TLHP Pending</p><p class="font-headline text-2xl font-black">' + tlhpPending + '</p></div></div><p class="text-xs text-on-surface-variant mt-1">Dari ' + tlhpCount + ' total temuan</p></div>',
+    '<div class="bg-surface p-5 rounded-xl border-[1.5px] border-black neubrutalism-shadow interactive-element"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-primary-container rounded-xl border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined text-white text-2xl">security</span></div><div><p class="text-xs text-on-surface-variant">Fraud Alert</p><p class="font-headline text-2xl font-black ' + (fraudCritical > 0 ? "text-danger" : "text-success") + '">' + fraudCritical + '</p></div></div><p class="text-xs text-on-surface-variant mt-1">Red Flag terdeteksi</p></div></div>',
+    '<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">',
+    '<div class="lg:col-span-2 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">map</span> Risk Heatmap Matrix (5x5)</h3><div class="overflow-x-auto"><table class="w-full min-w-[320px] border-collapse"><thead><tr><th class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold">Likelihood \\ Impact</th>' + [1,2,3,4,5].map(function(i) { return '<th class="border-[1.5px] border-black p-2 bg-surface-container text-xs font-bold">' + i + '</th>'; }).join("") + '</tr></thead><tbody>' + heatRows + '</tbody></table></div><div class="flex gap-3 mt-3 flex-wrap"><span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#86efac"></span> Very Low</span><span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#eab308"></span> Low</span><span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#f59e0b"></span> Medium</span><span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#dc2626"></span> High</span><span class="flex items-center gap-1 text-xs"><span class="w-3 h-3 rounded-sm" style="background:#450a0a;color:#fff"></span> Critical</span></div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">gavel</span> Compliance Score</h3><div class="flex flex-col items-center"><div class="relative w-32 h-32 mb-4"><svg class="w-32 h-32" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="#dde4de" stroke-width="10"/><circle cx="60" cy="60" r="54" fill="none" stroke="#00837d" stroke-width="10" stroke-dasharray="' + compCirc + '" stroke-dashoffset="' + compOff + '" stroke-linecap="round" transform="rotate(-90 60 60)"/></svg><div class="absolute inset-0 flex items-center justify-center"><span class="font-headline text-4xl font-black">' + compPct + '%</span></div></div>' +
+    '<p class="text-sm text-center">' + compDone + ' dari ' + compTotal + ' regulasi terpenuhi</p><p class="text-xs text-on-surface-variant mt-1">Skor rata-rata risiko: ' + avgRisk + '/25</p></div></div></div>',
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-danger">warning</span> Fraud Alert Terkini</h3><div>' + fraudList + '</div></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow"><h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">timeline</span> SPIP Maturity Progress</h3><div class="space-y-4">' + spipBars + '</div></div></div></div>'
+  ].join("");
+}
+
+// ===== PETA BANDA ACEH =====
+function renderPeta(el, user) {
+  var riskData = APP.data.riskRegister.filter(function(r) { return user.role === "super_admin" || r.skpa === user.skpa; });
+  var activeNavItem = function(id) { return ''; };
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">',
+    [
+    ['Total SKPA Provinsi', APP.data.skpaList.length.toString(), 'business', 'text-primary-container'],
+    ['Risiko High/Critical', riskData.filter(function(r) { return r.skorKemungkinan * r.skorDampak >= 12; }).length.toString(), 'warning', 'text-danger'],
+    ['SKPA Aktif', APP.data.skpaList.filter(function(s) { return s.aktif; }).length.toString(), 'gpp_bad', 'text-success'],
+    ['Total Pengguna', APP.data.users.length.toString(), 'visibility', 'text-primary']
+    ].map(function(s) {
+    return '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow interactive-element"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-' + s[3].replace('text-', '') + ' rounded-xl border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined text-white text-2xl">' + s[2] + '</span></div><div><p class="text-xs text-on-surface-variant">' + s[0] + '</p><p class="font-headline text-4xl font-black">' + s[1] + '</p></div></div></div>';
+    }).join(""),
+    '</div>',
+    '<div class="grid grid-cols-1 lg:grid-cols-4 gap-5">',
+    '<div class="lg:col-span-3 bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+     '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">map</span> Peta Interaktif Banda Aceh & Aceh Besar</h3>',
+    '<div id="map-container" class="w-full h-[500px] rounded-xl border-[1.5px] border-black overflow-hidden"></div>',
+     '<p class="text-xs text-on-surface-variant mt-3 flex items-center gap-2"><span class="material-symbols-outlined text-sm">info</span> Klik marker untuk melihat detail SKPA. Warna marker menunjukkan level risiko. Peta mencakup Kota Banda Aceh dan Kabupaten Aceh Besar.</p>',
+    '</div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow">',
+    '<h3 class="font-headline text-lg font-black mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-primary">legend_toggle</span> Legenda</h3>',
+    '<div class="space-y-3">',
+    '<div class="flex items-center gap-3"><div class="w-5 h-5 rounded-full border-[1.5px] border-black" style="background:#22c55e"></div><div><p class="text-sm font-bold">Rendah</p><p class="text-xs text-on-surface-variant">Skor 1-4</p></div></div>',
+    '<div class="flex items-center gap-3"><div class="w-5 h-5 rounded-full border-[1.5px] border-black" style="background:#eab308"></div><div><p class="text-sm font-bold">Sedang</p><p class="text-xs text-on-surface-variant">Skor 5-9</p></div></div>',
+    '<div class="flex items-center gap-3"><div class="w-5 h-5 rounded-full border-[1.5px] border-black" style="background:#f97316"></div><div><p class="text-sm font-bold">Tinggi</p><p class="text-xs text-on-surface-variant">Skor 10-14</p></div></div>',
+    '<div class="flex items-center gap-3"><div class="w-5 h-5 rounded-full border-[1.5px] border-black" style="background:#dc2626"></div><div><p class="text-sm font-bold">Kritis</p><p class="text-xs text-on-surface-variant">Skor 15-25</p></div></div>',
+    '</div>',
+    '<hr class="my-4 border-[1.5px] border-black">',
+    '<h4 class="font-headline text-sm font-black mb-3">SKPA dengan Risiko Tertinggi</h4>',
+    '<div class="space-y-2" id="top-risk-skpa">',
+    riskData.length > 0 ?
+      riskData.sort(function(a, b) { return (b.skorKemungkinan * b.skorDampak) - (a.skorKemungkinan * a.skorDampak); }).slice(0, 5).map(function(r) {
+        var skor = r.skorKemungkinan * r.skorDampak;
+        var level = skor >= 15 ? 'Kritis' : skor >= 10 ? 'Tinggi' : skor >= 5 ? 'Sedang' : 'Rendah';
+        var color = skor >= 15 ? '#dc2626' : skor >= 10 ? '#f97316' : skor >= 5 ? '#eab308' : '#22c55e';
+        return '<div class="flex items-center gap-2 p-2 rounded-lg border-[1.5px] border-black"><div class="w-3 h-3 rounded-full flex-shrink-0" style="background:' + color + '"></div><div class="min-w-0 flex-1"><p class="text-xs font-bold truncate">' + r.skpa + '</p><p class="text-[10px] text-on-surface-variant">Skor: ' + skor + ' (' + level + ')</p></div></div>';
+      }).join("") : '<p class="text-xs text-on-surface-variant">Belum ada data risiko</p>',
+    '</div></div></div></div>'
+  ].join("");
+
+  // Initialize Leaflet map after DOM is ready
+  setTimeout(function() {
+    var mapEl = document.getElementById("map-container");
+    if (!mapEl || mapEl._leaflet_map) return;
+
+    var map = L.map(mapEl, {
+      center: [5.4400, 95.4400],
+      zoom: 11,
+      zoomControl: true,
+      scrollWheelZoom: true
+    });
+    mapEl._leaflet_map = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
+      maxZoom: 18
+    }).addTo(map);
+
+    // SKPA locations in Banda Aceh
+    var skpaLokasi = [
+      // === KOTA BANDA ACEH ===
+      { nama: "Inspektorat Aceh", lat: 5.5500, lng: 95.3170, alamat: "Jl. T. Nyak Arief No.219" },
+      { nama: "Dinas Pendidikan Aceh", lat: 5.5415, lng: 95.3320, alamat: "Jl. T. Nyak Arief No.175" },
+      { nama: "Dinas Kesehatan Aceh", lat: 5.5600, lng: 95.3150, alamat: "Jl. Tgk. Daud Beureueh No.40" },
+      { nama: "Dinas PUPR Aceh", lat: 5.5350, lng: 95.3080, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Bappeda Aceh", lat: 5.5520, lng: 95.3200, alamat: "Jl. T. Nyak Arief No.221" },
+      { nama: "BPKA Aceh", lat: 5.5550, lng: 95.3120, alamat: "Jl. T. Nyak Arief No.223" },
+      { nama: "Dinas Perhubungan Aceh", lat: 5.5400, lng: 95.3250, alamat: "Jl. Sultan Malikul Saleh" },
+      { nama: "Dinas Pertanian dan Perkebunan Aceh", lat: 5.5450, lng: 95.3350, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Perindustrian dan Perdagangan Aceh", lat: 5.5480, lng: 95.3400, alamat: "Jl. Teungku Chik Pante Kulu" },
+      { nama: "Dinas Sosial Aceh", lat: 5.5380, lng: 95.3100, alamat: "Jl. Tgk. H. M. Daud Beureueh" },
+      { nama: "Dinas Kebudayaan dan Pariwisata Aceh", lat: 5.5560, lng: 95.3250, alamat: "Jl. Tgk. Chik Kuta Karang" },
+      { nama: "Dinas Kelautan dan Perikanan Aceh", lat: 5.5430, lng: 95.3160, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Kehutanan dan Lingkungan Hidup Aceh", lat: 5.5460, lng: 95.3190, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Tenaga Kerja dan Mobilitas Penduduk Aceh", lat: 5.5390, lng: 95.3130, alamat: "Jl. Tgk. Daud Beureueh" },
+      { nama: "Dinas Pemberdayaan Perempuan dan Perlindungan Anak Aceh", lat: 5.5490, lng: 95.3180, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Pemberdayaan Masyarakat dan Gampong Aceh", lat: 5.5510, lng: 95.3160, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Syariat Islam Aceh", lat: 5.5540, lng: 95.3210, alamat: "Jl. Tgk. Chik Kuta Karang" },
+      { nama: "Dinas Komunikasi, Informatika dan Statistik Aceh", lat: 5.5470, lng: 95.3170, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Energi dan Sumber Daya Mineral Aceh", lat: 5.5420, lng: 95.3140, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Ketahanan Pangan Aceh", lat: 5.5440, lng: 95.3180, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Badan Kepegawaian Aceh", lat: 5.5530, lng: 95.3150, alamat: "Jl. T. Nyak Arief" },
+      { nama: "BPSDM Aceh", lat: 5.5485, lng: 95.3190, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Badan Kesbangpol Aceh", lat: 5.5455, lng: 95.3135, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Perkebunan Aceh", lat: 5.5445, lng: 95.3175, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Peternakan dan Kesehatan Hewan Aceh", lat: 5.5435, lng: 95.3200, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Perumahan Rakyat dan Kawasan Permukiman Aceh", lat: 5.5410, lng: 95.3220, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Penanaman Modal dan PTSP Aceh", lat: 5.5505, lng: 95.3190, alamat: "Jl. Tgk. H. M. Daud Beureueh" },
+      { nama: "Dinas Koperasi dan UKM Aceh", lat: 5.5475, lng: 95.3185, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Dinas Pemuda dan Olahraga Aceh", lat: 5.5570, lng: 95.3230, alamat: "Jl. Sultan Malikul Saleh" },
+      { nama: "Dinas Perpustakaan dan Arsip Aceh", lat: 5.5515, lng: 95.3210, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Satpol PP dan WH Aceh", lat: 5.5370, lng: 95.3120, alamat: "Jl. Tgk. Daud Beureueh" },
+      { nama: "BPBA", lat: 5.5470, lng: 95.3150, alamat: "Jl. T. Nyak Arief No.222" },
+      { nama: "Sekretariat DPRA Aceh", lat: 5.5495, lng: 95.3230, alamat: "Jl. T. Nyak Arief" },
+      { nama: "Kantor Gubernur Aceh", lat: 5.5530, lng: 95.3220, alamat: "Jl. T. Nyak Arief" },
+      // === KABUPATEN ACEH BESAR ===
+      { nama: "Kantor Bupati Aceh Besar", lat: 5.3080, lng: 95.6370, alamat: "Jl. Bupati No.1, Jantho" },
+      { nama: "Inspektorat Aceh Besar", lat: 5.3065, lng: 95.6385, alamat: "Komplek Perkantoran Pemkab Aceh Besar, Jantho" },
+      { nama: "Bappeda Aceh Besar", lat: 5.3090, lng: 95.6360, alamat: "Komplek Perkantoran Pemkab Aceh Besar, Jantho" },
+      { nama: "Dinas Pendidikan Aceh Besar", lat: 5.3070, lng: 95.6390, alamat: "Jl. Pendidikan No.1, Jantho" },
+      { nama: "Dinas Kesehatan Aceh Besar", lat: 5.3060, lng: 95.6400, alamat: "Komplek Perkantoran Pemkab Aceh Besar, Jantho" },
+      { nama: "Dinas PUPR Aceh Besar", lat: 5.3085, lng: 95.6375, alamat: "Komplek Perkantoran Pemkab Aceh Besar, Jantho" },
+      { nama: "Dinas Pertanian Aceh Besar", lat: 5.5070, lng: 95.3580, alamat: "Jl. T. Nyak Arief, Lambaro" },
+      { nama: "Puskesmas Induk Jantho", lat: 5.3050, lng: 95.6410, alamat: "Jl. Bupati, Jantho" },
+      { nama: "Kantor Camat Ingin Jaya", lat: 5.5100, lng: 95.3700, alamat: "Jl. Banda Aceh - Medan, Ingin Jaya" },
+      { nama: "Kantor Camat Darussalam", lat: 5.5300, lng: 95.3700, alamat: "Komplek Perkantoran Darussalam" },
+      { nama: "Universitas Syiah Kuala", lat: 5.5680, lng: 95.3660, alamat: "Jl. Tgk. Tanoh Abee, Darussalam" },
+    ];
+
+    var skpaWithRisk = {};
+    riskData.forEach(function(r) { skpaWithRisk[r.skpa] = (skpaWithRisk[r.skpa] || 0) + r.skorKemungkinan * r.skorDampak; });
+
+    function getRiskColor(score) {
+      if (!score || score <= 0) return "#6b7280";
+      if (score >= 15) return "#dc2626";
+      if (score >= 10) return "#f97316";
+      if (score >= 5) return "#eab308";
+      return "#22c55e";
+    }
+
+    function getRiskLevel(score) {
+      if (!score || score <= 0) return "Tidak Ada Data";
+      if (score >= 15) return "Kritis";
+      if (score >= 10) return "Tinggi";
+      if (score >= 5) return "Sedang";
+      return "Rendah";
+    }
+
+    skpaLokasi.forEach(function(sk) {
+      var totalScore = skpaWithRisk[sk.nama] || 0;
+      var color = getRiskColor(totalScore);
+      var level = getRiskLevel(totalScore);
+
+      var markerIcon = L.divIcon({
+        className: "",
+        html: '<div style="width:24px;height:24px;background:' + color + ';border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:2px 2px 0 #000"><span style="font-size:12px;color:#000">&#8226;</span></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+
+      var riskItems = riskData.filter(function(r) { return r.skpa === sk.nama; });
+      var riskHtml = riskItems.length > 0 ?
+        riskItems.map(function(r) {
+          return '<tr><td class="text-[11px]">' + r.risiko + '</td><td class="text-[11px] font-bold text-center">' + (r.skorKemungkinan * r.skorDampak) + '</td><td class="text-[11px] text-center">' + r.status + '</td></tr>';
+        }).join("") :
+        '<tr><td colspan="3" class="text-[11px] text-center text-on-surface-variant">Belum ada data risiko</td></tr>';
+
+      L.marker([sk.lat, sk.lng], { icon: markerIcon })
+        .addTo(map)
+        .bindPopup(
+          '<div style="font-family:Bricolage Grotesque,sans-serif;min-width:280px">' +
+          '<h4 style="font-size:14px;font-weight:900;margin:0 0 4px">' + sk.nama + '</h4>' +
+          '<p style="font-size:11px;color:#555;margin:0 0 8px">' + sk.alamat + '</p>' +
+          '<div style="display:flex;gap:8px;margin-bottom:8px">' +
+          '<span style="font-size:10px;font-weight:700;background:' + color + ';color:#fff;padding:2px 8px;border-radius:4px;border:1px solid #000">' + level + '</span>' +
+          '<span style="font-size:10px;font-weight:700;background:#f3fffd;padding:2px 8px;border-radius:4px;border:1px solid #000">Skor: ' + (totalScore || "-") + '</span>' +
+          '</div>' +
+          '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+          '<thead><tr>' +
+          '<th style="text-align:left;font-size:10px;font-weight:700;padding:4px;border:1px solid #000;background:#f5faf9">Risiko</th>' +
+          '<th style="text-align:center;font-size:10px;font-weight:700;padding:4px;border:1px solid #000;background:#f5faf9">Skor</th>' +
+          '<th style="text-align:center;font-size:10px;font-weight:700;padding:4px;border:1px solid #000;background:#f5faf9">Status</th>' +
+          '</tr></thead><tbody>' + riskHtml + '</tbody></table></div>',
+          { maxWidth: 320, minWidth: 280 }
+        );
+    });
+
+    // Fit bounds to show all markers
+    if (skpaLokasi.length > 0) {
+      var group = L.featureGroup(skpaLokasi.map(function(sk) { return L.marker([sk.lat, sk.lng]); }));
+      map.fitBounds(group.getBounds().pad(0.15));
+    }
+  }, 50);
+}
+
+// ===== DATA SKPA =====
+function renderSKPA(el, user) {
+  var rows = APP.data.skpaList.map(function(s) {
+    var usage = APP.data.users.filter(function(u) { return u.skpa === s.nama; }).length;
+    var riskCount = APP.data.riskRegister.filter(function(r) { return r.skpa === s.nama; }).length;
+    return '<tr>' +
+      '<td class="border-[1.5px] border-black p-2 text-sm font-bold">' + s.nama + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-xs text-on-surface-variant">' + (s.alamat || "-") + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-xs">' + (s.kontak || "-") + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-xs text-center">' + usage + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-xs text-center">' + riskCount + '</td>' +
+      '<td class="border-[1.5px] border-black p-2 text-center">' +
+      '<span class="inline-block w-3 h-3 rounded-full border-[1.5px] border-black ' + (s.aktif ? "bg-success" : "bg-gray-300") + '"></span></td>' +
+      '<td class="border-[1.5px] border-black p-2 text-center">' +
+      '<div class="flex items-center justify-center gap-1">' +
+      '<button onclick="editSKPA(' + s.id + ')" class="px-3 py-1 rounded-full border-[1.5px] border-black bg-white text-xs font-bold interactive-element">Edit</button>' +
+      '<button onclick="toggleSKPA(' + s.id + ')" class="px-3 py-1 rounded-full border-[1.5px] border-black bg-white text-xs font-bold interactive-element">' + (s.aktif ? "Nonaktif" : "Aktif") + '</button>' +
+      '<button onclick="deleteSKPA(' + s.id + ')" class="px-3 py-1 rounded-full border-[1.5px] border-black bg-white text-xs font-bold text-danger interactive-element">Hapus</button></div></td></tr>';
+  }).join("") || '<tr><td colspan="7" class="text-center py-4 text-sm">Belum ada SKPA terdaftar</td></tr>';
+
+  el.innerHTML = [
+    '<div class="space-y-6">',
+    '<div class="flex justify-between items-center"><p class="text-sm text-on-surface-variant">Total ' + APP.data.skpaList.length + ' SKPA terdaftar</p>',
+    '<button onclick="showAddSKPAModal()" class="bg-primary-container text-on-primary-container px-5 py-2.5 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-lg">add_business</span> Tambah SKPA</button></div>',
+    '<div class="bg-surface p-6 rounded-xl border-[1.5px] border-black neubrutalism-shadow overflow-x-auto">',
+    '<table class="w-full text-sm border-collapse"><thead><tr class="bg-surface-container">' +
+    '<th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Nama SKPA</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Alamat</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-left">Kontak</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Pengguna</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Risiko</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Status</th><th class="border-[1.5px] border-black p-2 text-xs font-bold text-center">Aksi</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+  ].join("");
+}
+
+function showAddSKPAModal(data) {
+  var isEdit = !!data;
+  document.getElementById("app").insertAdjacentHTML("beforeend", [
+    '<div class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4" id="skpa-modal" onclick="if(event.target===this)closeModal(\'skpa-modal\')">',
+    '<div class="bg-surface rounded-2xl border-[1.5px] border-black neubrutalism-shadow w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">',
+    '<div class="flex items-center justify-between mb-6"><h3 class="font-headline text-xl font-black">' + (isEdit ? "Edit" : "Tambah") + ' SKPA</h3><button onclick="closeModal(\'skpa-modal\')" class="w-8 h-8 rounded-full border-[1.5px] border-black flex items-center justify-center"><span class="material-symbols-outlined">close</span></button></div>',
+    '<form id="form-skpa" class="space-y-4" onsubmit="saveSKPA(event)">',
+    '<input type="hidden" id="skpa-id" value="' + (data ? data.id : "") + '">',
+    '<div><label class="text-xs font-bold block mb-1">Nama SKPA</label><input type="text" id="skpa-nama" value="' + (data ? data.nama : "") + '" required class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div><label class="text-xs font-bold block mb-1">Alamat</label><textarea id="skpa-alamat" rows="2" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm">' + (data ? data.alamat || "" : "") + '</textarea></div>',
+    '<div><label class="text-xs font-bold block mb-1">Kontak (Email)</label><input type="email" id="skpa-kontak" value="' + (data ? data.kontak || "" : "") + '" class="w-full px-3 py-2.5 rounded-xl border-[1.5px] border-black bg-white text-sm"></div>',
+    '<div class="flex gap-3 pt-2"><button type="submit" class="bg-primary-container text-on-primary-container px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element neubrutalism-shadow-sm">' + (isEdit ? "Simpan" : "Tambah") + '</button><button type="button" onclick="closeModal(\'skpa-modal\')" class="bg-white px-6 py-3 rounded-full border-[1.5px] border-black text-sm font-bold interactive-element">Batal</button></div>',
+    "</form></div></div>"
+  ].join(""));
+}
+
+function saveSKPA(e) {
+  e.preventDefault();
+  var id = document.getElementById("skpa-id").value;
+  var data = {
+    nama: document.getElementById("skpa-nama").value,
+    alamat: document.getElementById("skpa-alamat").value,
+    kontak: document.getElementById("skpa-kontak").value,
+    aktif: true,
+  };
+  if (id) {
+    var idx = APP.data.skpaList.findIndex(function(s) { return s.id == id; });
+    if (idx > -1) { for (var k in data) APP.data.skpaList[idx][k] = data[k]; }
+  } else {
+    data.id = APP.id(APP.data.skpaList);
+    APP.data.skpaList.push(data);
+  }
+  APP.save("skpaList");
+  closeModal("skpa-modal");
+  render();
+}
+
+function editSKPA(id) {
+  var data = APP.data.skpaList.find(function(s) { return s.id === id; });
+  if (data) showAddSKPAModal(data);
+}
+
+function toggleSKPA(id) {
+  var skpa = APP.data.skpaList.find(function(s) { return s.id === id; });
+  if (skpa) { skpa.aktif = !skpa.aktif; APP.save("skpaList"); render(); }
+}
+
+function deleteSKPA(id) {
+  var skpa = APP.data.skpaList.find(function(s) { return s.id === id; });
+  if (!skpa) return;
+  var userUsage = APP.data.users.filter(function(u) { return u.skpa === skpa.nama; }).length;
+  var riskUsage = APP.data.riskRegister.filter(function(r) { return r.skpa === skpa.nama; }).length;
+  var msg = "Hapus SKPA \"" + skpa.nama + "\"?";
+  if (userUsage > 0 || riskUsage > 0) msg += "\nReferensi terkait: " + userUsage + " pengguna, " + riskUsage + " risiko.";
+  if (!confirm(msg)) return;
+  APP.data.skpaList = APP.data.skpaList.filter(function(s) { return s.id !== id; });
+  APP.save("skpaList");
+  render();
+}
+
+// ===== INIT =====
+render();
+</script>
+</body>
+</html>
