@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Pertahanan Provinsi</title>
+<title>pertahanan profinsi<</title>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -63,8 +63,7 @@ const APP = {
   seedData() {
     if (this.data.users.length === 0) {
       this.data.users = [
-        { id: 1, nama: "Inspektur Aceh", email: "inspektur@.aceh.go.id", password: "admin123
-          ", role: "super_admin", skpa: "Inspektorat Aceh", aktif: true },
+        { id: 1, nama: "Inspektur Aceh", email: "inspektur@aceh.go.id", password: "admin123", role: "super_admin", skpa: "Inspektorat Aceh", aktif: true },
         { id: 2, nama: "Risk Officer Dinas Pendidikan", email: "risk@dikbud.aceh.go.id", password: "skpa123", role: "risk_officer", skpa: "Dinas Pendidikan Aceh", aktif: true },
         { id: 3, nama: "Risk Officer Dinas Kesehatan", email: "risk@kes.aceh.go.id", password: "skpa123", role: "risk_officer", skpa: "Dinas Kesehatan Aceh", aktif: true },
         { id: 4, nama: "Sekretaris Daerah Aceh", email: "sekda@aceh.go.id", password: "exec123", role: "eksekutif", skpa: "-", aktif: true },
@@ -345,7 +344,7 @@ function renderLogin() {
     '<span class="text-xs font-bold">Terintegrasi SPIP & BPKP</span></div></div>',
     '<form onsubmit="handleLogin(event)" class="space-y-4">',
     '<div><label class="text-xs font-bold mb-1 block">Email / Username</label>',
-    '<input type="text" id="login-email" value="inspektur@aceh.go.id" class="w-full px-5 py-3 rounded-xl border-[1.5px] border-black text-sm neubrutalism-shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"></div>',
+    '<input type="text" id="login-email" value="inspektur@gmail.com" class="w-full px-5 py-3 rounded-xl border-[1.5px] border-black text-sm neubrutalism-shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"></div>',
     '<div><label class="text-xs font-bold mb-1 block">Password</label>',
     '<input type="password" id="login-pass" value="admin123" class="w-full px-5 py-3 rounded-xl border-[1.5px] border-black text-sm neubrutalism-shadow-sm focus:outline-none focus:ring-2 focus:ring-primary"></div>',
     '<button type="submit" class="w-full bg-primary-container text-on-primary-container font-bold text-lg py-3.5 rounded-full border-[1.5px] border-black interactive-element neubrutalism-shadow flex items-center justify-center gap-2">',
